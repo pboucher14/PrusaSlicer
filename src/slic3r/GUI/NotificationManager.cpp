@@ -146,6 +146,10 @@ NotificationManager::PopNotification::PopNotification(const NotificationData &n,
 #if ENABLE_NEW_NOTIFICATIONS_FADE_OUT 
 void NotificationManager::PopNotification::render(GLCanvas3D& canvas, float initial_y, bool move_from_overlay, float overlay_width)
 {
+	if (!m_initialized) {
+		init();
+	}
+
 	if (m_hidden) {
 		m_top_y = initial_y - GAP_WIDTH;
 		return;
@@ -943,7 +947,7 @@ void NotificationManager::ExportFinishedNotification::render_eject_button(ImGuiW
 		if (m_hover_time > 0 && m_hover_time < time_now) {
 			ImGui::PushStyleColor(ImGuiCol_PopupBg, ImGuiWrapper::COL_WINDOW_BACKGROUND);
 			ImGui::BeginTooltip();
-			imgui.text(_u8L("Eject drive"));
+			imgui.text(_u8L("Eject drive") + " " + GUI::shortkey_ctrl_prefix() + "T");
 			ImGui::EndTooltip();
 			ImGui::PopStyleColor();
 		} 

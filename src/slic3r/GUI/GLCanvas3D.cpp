@@ -2288,8 +2288,11 @@ static void reserve_new_volume_finalize_old_volume(GLVolume& vol_new, GLVolume& 
 void GLCanvas3D::load_gcode_preview(const GCodeProcessor::Result& gcode_result)
 {
     m_gcode_viewer.load(gcode_result, *this->fff_print(), m_initialized);
-    if (wxGetApp().is_editor())
+
+    if (wxGetApp().is_editor()) {
+        m_gcode_viewer.update_shells_color_by_extruder(m_config);
         _show_warning_texture_if_needed(WarningTexture::ToolpathOutside);
+    }
 }
 
 void GLCanvas3D::refresh_gcode_preview(const GCodeProcessor::Result& gcode_result, const std::vector<std::string>& str_tool_colors)
@@ -5329,14 +5332,16 @@ void GLCanvas3D::_render_view_toolbar() const
     GLToolbar& view_toolbar = wxGetApp().plater()->get_view_toolbar();
 
 #if ENABLE_RETINA_GL
-//     m_view_toolbar.set_scale(m_retina_helper->get_scale_factor());
     const float scale = m_retina_helper->get_scale_factor() * wxGetApp().toolbar_icon_scale();
-    view_toolbar.set_scale(scale); //! #ys_FIXME_experiment
+#if __APPLE__
+    view_toolbar.set_scale(scale);
+#else // if GTK3
+    const float size = int(GLGizmosManager::Default_Icons_Size * scale);
+    view_toolbar.set_icons_size(size);
+#endif // __APPLE__
 #else
-//     m_view_toolbar.set_scale(m_canvas->GetContentScaleFactor());
-//     m_view_toolbar.set_scale(wxGetApp().em_unit()*0.1f);
     const float size = int(GLGizmosManager::Default_Icons_Size * wxGetApp().toolbar_icon_scale());
-    view_toolbar.set_icons_size(size); //! #ys_FIXME_experiment
+    view_toolbar.set_icons_size(size);
 #endif // ENABLE_RETINA_GL
 
     Size cnv_size = get_canvas_size();
