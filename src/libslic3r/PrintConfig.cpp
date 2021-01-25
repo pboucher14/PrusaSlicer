@@ -2519,6 +2519,16 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(0));
 
+    def = this->add("filament_z_offset", coFloat);
+    def->label = L("Z offset");
+    def->tooltip = L("This value will be added (or subtracted) from all the Z coordinates "
+                   "in the output G-code. It is used for adding extra distance between nozzle and current layer."
+                   "This offset is added to the z offset in the printer profile. It doesn't override it."
+                   "Useful for petg filament which doesn't like to be squished.");
+    def->sidetext = L("mm");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0));
+
     // Declare retract values for filament profile, overriding the printer's extruder profile.
     for (const char *opt_key : {
         // floats

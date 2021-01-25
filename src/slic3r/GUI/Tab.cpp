@@ -1806,7 +1806,7 @@ void TabFilament::build()
         optgroup->append_single_option_line("filament_density");
         optgroup->append_single_option_line("filament_cost");
         optgroup->append_single_option_line("filament_spool_weight");
-
+ 
         optgroup->m_on_change = [this, optgroup](t_config_option_key opt_key, boost::any value)
         {
             update_dirty();
@@ -1818,6 +1818,7 @@ void TabFilament::build()
             else
                 on_value_change(opt_key, value);
         };
+        optgroup->append_single_option_line("filament_z_offset");
 
         optgroup = page->new_optgroup(L("Temperature"));
         Line line = { L("Nozzle"), "" };

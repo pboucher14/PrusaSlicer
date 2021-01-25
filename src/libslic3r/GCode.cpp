@@ -2229,7 +2229,7 @@ std::string GCode::change_layer(coordf_t print_z)
     if (m_layer_count > 0)
         // Increment a progress bar indicator.
         gcode += m_writer.update_progress(++ m_layer_index, m_layer_count);
-    coordf_t z = print_z + m_config.z_offset.value;  // in unscaled coordinates
+    coordf_t z = print_z + m_config.z_offset.value + m_config.filament_z_offset.value;  // in unscaled coordinates
     if (EXTRUDER_CONFIG(retract_layer_change) && m_writer.will_move_z(z))
         gcode += this->retract();
 
