@@ -325,7 +325,7 @@ private:
         size_t cur_len = 0;
 
         wxString longest_sub_string;
-        auto get_longest_sub_string = [longest_sub_string, input](wxString &longest_sub_str, int cur_len, size_t i) {
+        auto get_longest_sub_string = [input](wxString &longest_sub_str, size_t cur_len, size_t i) {
             if (cur_len > longest_sub_str.Len())
                 longest_sub_str = input.SubString(i - cur_len + 1, i);
         };
@@ -774,6 +774,7 @@ bool GUI_App::on_init_inner()
 //    wxSystemOptions::SetOption("msw.notebook.themed-background", 0);
 
 //     Slic3r::debugf "wxWidgets version %s, Wx version %s\n", wxVERSION_STRING, wxVERSION;
+
 
     if (is_editor()) {
         std::string msg = Http::tls_global_init();

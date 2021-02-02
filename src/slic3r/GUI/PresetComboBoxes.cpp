@@ -201,7 +201,7 @@ void PresetComboBox::update_selection()
 
     if (!cell) return;
 
-    g_object_set(G_OBJECT(cell), "ellipsize", PANGO_ELLIPSIZE_END, NULL);
+    g_object_set(G_OBJECT(cell), "ellipsize", PANGO_ELLIPSIZE_END, (char*)NULL);
 
     // Only the list of cells must be freed, the renderer isn't ours to free
     g_list_free(cells);
@@ -759,7 +759,7 @@ void PlaterPresetComboBox::update()
     this->Clear();
     invalidate_selection();
 
-    const Preset* selected_filament_preset;
+    const Preset* selected_filament_preset = nullptr;
     std::string extruder_color;
     if (m_type == Preset::TYPE_FILAMENT)
     {

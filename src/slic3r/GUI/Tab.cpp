@@ -411,11 +411,6 @@ Slic3r::GUI::PageShp Tab::add_options_page(const wxString& title, const std::str
         }
     }
     // Initialize the page.
-#ifdef __WXOSX__
-    auto panel = m_tmp_panel;
-#else
-    auto panel = this;
-#endif
     PageShp page(new Page(m_page_view, title, icon_idx));
 //	page->SetBackgroundStyle(wxBG_STYLE_SYSTEM);
 #ifdef __WINDOWS__
@@ -1434,6 +1429,18 @@ void TabPrint::build()
         optgroup->append_single_option_line("seam_position", category_path + "seam-position");
         optgroup->append_single_option_line("external_perimeters_first", category_path + "external-perimeters-first");
 
+        optgroup = page->new_optgroup(L("Fuzzy skin (experimental)"));
+        Option option = optgroup->get_option("fuzzy_skin_perimeter_mode");
+        option.opt.width = 30;
+        optgroup->append_single_option_line(option);
+#if 0
+        option = optgroup->get_option("fuzzy_skin_shape");
+        option.opt.width = 30;
+        optgroup->append_single_option_line(option);
+#endif
+        optgroup->append_single_option_line(optgroup->get_option("fuzzy_skin_thickness"));
+        optgroup->append_single_option_line(optgroup->get_option("fuzzy_skin_point_dist"));
+
     page = add_options_page(L("Infill"), "infill");
         category_path = "infill_42#";
         optgroup = page->new_optgroup(L("Infill"));
@@ -1597,7 +1604,7 @@ void TabPrint::build()
         optgroup = page->new_optgroup(L("Output file"));
         optgroup->append_single_option_line("gcode_comments");
         optgroup->append_single_option_line("gcode_label_objects");
-        Option option = optgroup->get_option("output_filename_format");
+        option = optgroup->get_option("output_filename_format");
         option.opt.full_width = true;
         optgroup->append_single_option_line(option);
 
@@ -2987,8 +2994,8 @@ void Tab::update_btns_enabling()
     // we can delete any preset from the physical printer
     // and any user preset
     const Preset& preset = m_presets->get_edited_preset();
-    m_btn_delete_preset->Show(m_type == Preset::TYPE_PRINTER && m_preset_bundle->physical_printers.has_selection() || 
-                              !preset.is_default && !preset.is_system);
+    m_btn_delete_preset->Show((m_type == Preset::TYPE_PRINTER && m_preset_bundle->physical_printers.has_selection())
+                              || (!preset.is_default && !preset.is_system));
 
     if (m_btn_edit_ph_printer)
         m_btn_edit_ph_printer->SetToolTip( m_preset_bundle->physical_printers.has_selection() ?
