@@ -2,7 +2,6 @@
 #include "GLCanvas3D.hpp"
 
 #include "admesh/stl.h"
-#include "polypartition.h"
 #include "libslic3r/ClipperUtils.hpp"
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/GCode/ThumbnailData.hpp"
@@ -68,20 +67,20 @@
 
 #include <imgui/imgui_internal.h>
 
-static const float TRACKBALLSIZE = 0.8f;
+static constexpr const float TRACKBALLSIZE = 0.8f;
 
-static const float DEFAULT_BG_DARK_COLOR[3] = { 0.478f, 0.478f, 0.478f };
-static const float DEFAULT_BG_LIGHT_COLOR[3] = { 0.753f, 0.753f, 0.753f };
-static const float ERROR_BG_DARK_COLOR[3] = { 0.478f, 0.192f, 0.039f };
-static const float ERROR_BG_LIGHT_COLOR[3] = { 0.753f, 0.192f, 0.039f };
-//static const float AXES_COLOR[3][3] = { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } };
+static constexpr const float DEFAULT_BG_DARK_COLOR[3] = { 0.478f, 0.478f, 0.478f };
+static constexpr const float DEFAULT_BG_LIGHT_COLOR[3] = { 0.753f, 0.753f, 0.753f };
+static constexpr const float ERROR_BG_DARK_COLOR[3] = { 0.478f, 0.192f, 0.039f };
+static constexpr const float ERROR_BG_LIGHT_COLOR[3] = { 0.753f, 0.192f, 0.039f };
+//static constexpr const float AXES_COLOR[3][3] = { { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f } };
 
 // Number of floats
-static const size_t MAX_VERTEX_BUFFER_SIZE     = 131072 * 6; // 3.15MB
+static constexpr const size_t MAX_VERTEX_BUFFER_SIZE     = 131072 * 6; // 3.15MB
 // Reserve size in number of floats.
-static const size_t VERTEX_BUFFER_RESERVE_SIZE = 131072 * 2; // 1.05MB
+static constexpr const size_t VERTEX_BUFFER_RESERVE_SIZE = 131072 * 2; // 1.05MB
 // Reserve size in number of floats, maximum sum of all preallocated buffers.
-static const size_t VERTEX_BUFFER_RESERVE_SIZE_SUM_MAX = 1024 * 1024 * 128 / 4; // 128MB
+//static constexpr const size_t VERTEX_BUFFER_RESERVE_SIZE_SUM_MAX = 1024 * 1024 * 128 / 4; // 128MB
 
 namespace Slic3r {
 namespace GUI {
@@ -612,6 +611,7 @@ GLCanvas3D::Mouse::Mouse()
 {
 }
 
+#if !ENABLE_WARNING_TEXTURE_REMOVAL
 const unsigned char GLCanvas3D::WarningTexture::Background_Color[3] = { 120, 120, 120 };//{ 9, 91, 134 };
 const unsigned char GLCanvas3D::WarningTexture::Opacity = 255;
 
@@ -631,12 +631,12 @@ void GLCanvas3D::WarningTexture::activate(WarningTexture::Warning warning, bool 
     std::string text;
     bool error = false;
     switch (warning) {
-    case ObjectOutside: text = L("An object outside the print area was detected."); break;
-    case ToolpathOutside: text = L("A toolpath outside the print area was detected."); error = true; break;
-    case SlaSupportsOutside: text = L("SLA supports outside the print area were detected."); error = true; break;
-    case SomethingNotShown: text = L("Some objects are not visible."); break;
+    case ObjectOutside: text = _u8L("An object outside the print area was detected."); break;
+    case ToolpathOutside: text = _u8L("A toolpath outside the print area was detected."); error = true; break;
+    case SlaSupportsOutside: text = _u8L("SLA supports outside the print area were detected."); error = true; break;
+    case SomethingNotShown: text = _u8L("Some objects are not visible."); break;
     case ObjectClashed:
-        text = L( "An object outside the print area was detected.\n"
+        text = _u8L( "An object outside the print area was detected.\n"
                   "Resolve the current problem to continue slicing.");
         error = true;
         break;
@@ -880,6 +880,7 @@ void GLCanvas3D::WarningTexture::msw_rescale(const GLCanvas3D& canvas)
 
     generate(m_msg_text, canvas, true, m_is_colored_red);
 }
+#endif // !ENABLE_WARNING_TEXTURE_REMOVAL
 
 void GLCanvas3D::Labels::render(const std::vector<const ModelInstance*>& sorted_instances) const
 {
@@ -1181,7 +1182,7 @@ GLCanvas3D::GLCanvas3D(wxGLCanvas* canvas)
 #endif // ENABLE_RENDER_PICKING_PASS
     , m_render_sla_auxiliaries(true)
     , m_labels(*this)
-    , m_slope(*this, m_volumes)
+    , m_slope(m_volumes)
 {
     if (m_canvas != nullptr) {
         m_timer.SetOwner(m_canvas);
@@ -1303,7 +1304,11 @@ void GLCanvas3D::reset_volumes()
     m_volumes.clear();
     m_dirty = true;
 
+#if ENABLE_WARNING_TEXTURE_REMOVAL
+    _set_warning_notification(EWarning::ObjectOutside, false);
+#else
     _set_warning_texture(WarningTexture::ObjectOutside, false);
+#endif // ENABLE_WARNING_TEXTURE_REMOVAL
 }
 
 int GLCanvas3D::check_volumes_outside_state() const
@@ -1357,11 +1362,19 @@ void GLCanvas3D::toggle_model_objects_visibility(bool visible, const ModelObject
     if (visible && !mo)
         toggle_sla_auxiliaries_visibility(true, mo, instance_idx);
 
+#if ENABLE_WARNING_TEXTURE_REMOVAL
+    if (!mo && !visible && !m_model->objects.empty() && (m_model->objects.size() > 1 || m_model->objects.front()->instances.size() > 1))
+        _set_warning_notification(EWarning::SomethingNotShown, true);
+
+    if (!mo && visible)
+        _set_warning_notification(EWarning::SomethingNotShown, false);
+#else
     if (!mo && !visible && !m_model->objects.empty() && (m_model->objects.size() > 1 || m_model->objects.front()->instances.size() > 1))
         _set_warning_texture(WarningTexture::SomethingNotShown, true);
 
     if (!mo && visible)
         _set_warning_texture(WarningTexture::SomethingNotShown, false);
+#endif // ENABLE_WARNING_TEXTURE_REMOVAL
 }
 
 void GLCanvas3D::update_instance_printable_state_for_object(const size_t obj_idx)
@@ -2237,18 +2250,31 @@ void GLCanvas3D::reload_scene(bool refresh_immediately, bool force_full_scene_re
 
         const bool contained_min_one = m_volumes.check_outside_state(m_config, &state);
 
+#if ENABLE_WARNING_TEXTURE_REMOVAL
+        _set_warning_notification(EWarning::ObjectClashed, state == ModelInstancePVS_Partly_Outside);
+        _set_warning_notification(EWarning::ObjectOutside, state == ModelInstancePVS_Fully_Outside);
+        if (printer_technology != ptSLA || state == ModelInstancePVS_Inside)
+            _set_warning_notification(EWarning::SlaSupportsOutside, false);
+#else
         _set_warning_texture(WarningTexture::ObjectClashed, state == ModelInstancePVS_Partly_Outside);
         _set_warning_texture(WarningTexture::ObjectOutside, state == ModelInstancePVS_Fully_Outside);
         if(printer_technology != ptSLA || state == ModelInstancePVS_Inside)
             _set_warning_texture(WarningTexture::SlaSupportsOutside, false);
+#endif // ENABLE_WARNING_TEXTURE_REMOVAL
 
         post_event(Event<bool>(EVT_GLCANVAS_ENABLE_ACTION_BUTTONS, 
                                contained_min_one && !m_model->objects.empty() && state != ModelInstancePVS_Partly_Outside));
     }
     else {
+#if ENABLE_WARNING_TEXTURE_REMOVAL
+        _set_warning_notification(EWarning::ObjectOutside, false);
+        _set_warning_notification(EWarning::ObjectClashed, false);
+        _set_warning_notification(EWarning::SlaSupportsOutside, false);
+#else
         _set_warning_texture(WarningTexture::ObjectOutside, false);
         _set_warning_texture(WarningTexture::ObjectClashed, false);
         _set_warning_texture(WarningTexture::SlaSupportsOutside, false);
+#endif // ENABLE_WARNING_TEXTURE_REMOVAL
         post_event(Event<bool>(EVT_GLCANVAS_ENABLE_ACTION_BUTTONS, false));
     }
 
@@ -2291,7 +2317,11 @@ void GLCanvas3D::load_gcode_preview(const GCodeProcessor::Result& gcode_result)
 
     if (wxGetApp().is_editor()) {
         m_gcode_viewer.update_shells_color_by_extruder(m_config);
+#if ENABLE_WARNING_TEXTURE_REMOVAL
+        _set_warning_notification_if_needed(EWarning::ToolpathOutside);
+#else
         _show_warning_texture_if_needed(WarningTexture::ToolpathOutside);
+#endif // ENABLE_WARNING_TEXTURE_REMOVAL
     }
 }
 
@@ -2320,7 +2350,11 @@ void GLCanvas3D::load_sla_preview()
 	    this->reset_volumes();
         _load_sla_shells();
         _update_sla_shells_outside_state();
+#if ENABLE_WARNING_TEXTURE_REMOVAL
+        _set_warning_notification_if_needed(EWarning::SlaSupportsOutside);
+#else
         _show_warning_texture_if_needed(WarningTexture::SlaSupportsOutside);
+#endif // ENABLE_WARNING_TEXTURE_REMOVAL
     }
 }
 
@@ -2341,7 +2375,11 @@ void GLCanvas3D::load_preview(const std::vector<std::string>& str_tool_colors, c
         _load_print_object_toolpaths(*object, str_tool_colors, color_print_values);
 
     _update_toolpath_volumes_outside_state();
+#if ENABLE_WARNING_TEXTURE_REMOVAL
+    _set_warning_notification_if_needed(EWarning::ToolpathOutside);
+#else
     _show_warning_texture_if_needed(WarningTexture::ToolpathOutside);
+#endif // ENABLE_WARNING_TEXTURE_REMOVAL
 }
 
 void GLCanvas3D::bind_event_handlers()
@@ -3851,7 +3889,9 @@ void GLCanvas3D::set_cursor(ECursorType type)
 
 void GLCanvas3D::msw_rescale()
 {
+#if !ENABLE_WARNING_TEXTURE_REMOVAL
     m_warning_texture.msw_rescale(*this);
+#endif // !ENABLE_WARNING_TEXTURE_REMOVAL
 }
 
 void GLCanvas3D::update_tooltip_for_settings_item_in_main_toolbar()
@@ -4582,9 +4622,9 @@ bool GLCanvas3D::_init_main_toolbar()
                                                 "\n" + "[" + GUI::shortkey_ctrl_prefix() + "4] - " + _u8L("Printer Settings Tab") ;
     item.sprite_id = 10;
     item.enabling_callback    = GLToolbarItem::Default_Enabling_Callback;
-    item.visibility_callback  = [this]() { return (wxGetApp().app_config->get("new_settings_layout_mode") == "1" ||
-                                                   wxGetApp().app_config->get("dlg_settings_layout_mode") == "1"); };
-    item.left.action_callback = [this]() { wxGetApp().mainframe->select_tab(); };
+    item.visibility_callback  = []() { return (wxGetApp().app_config->get("new_settings_layout_mode") == "1" ||
+                                               wxGetApp().app_config->get("dlg_settings_layout_mode") == "1"); };
+    item.left.action_callback = []() { wxGetApp().mainframe->select_tab(); };
     if (!m_main_toolbar.add_item(item))
         return false;
 
@@ -5191,7 +5231,9 @@ void GLCanvas3D::_render_overlays() const
     _check_and_update_toolbar_icon_scale();
 
     _render_gizmos_overlay();
+#if !ENABLE_WARNING_TEXTURE_REMOVAL
     _render_warning_texture();
+#endif // !ENABLE_WARNING_TEXTURE_REMOVAL
 
     // main toolbar and undoredo toolbar need to be both updated before rendering because both their sizes are needed
     // to correctly place them
@@ -5212,7 +5254,7 @@ void GLCanvas3D::_render_overlays() const
     _render_collapse_toolbar();
     _render_view_toolbar();
 
-    if ((m_layers_editing.last_object_id >= 0) && (m_layers_editing.object_max_z() > 0.0f))
+    if (m_layers_editing.last_object_id >= 0 && m_layers_editing.object_max_z() > 0.0f)
         m_layers_editing.render_overlay(*this);
 
     const ConfigOptionBool* opt = dynamic_cast<const ConfigOptionBool*>(m_config->option("complete_objects"));
@@ -5229,10 +5271,12 @@ void GLCanvas3D::_render_overlays() const
     glsafe(::glPopMatrix());
 }
 
+#if !ENABLE_WARNING_TEXTURE_REMOVAL
 void GLCanvas3D::_render_warning_texture() const
 {
     m_warning_texture.render(*this);
 }
+#endif // !ENABLE_WARNING_TEXTURE_REMOVAL
 
 void GLCanvas3D::_render_volumes_for_picking() const
 {
@@ -5402,8 +5446,7 @@ void GLCanvas3D::_render_sla_slices() const
 
     double clip_min_z = -m_clipping_planes[0].get_data()[3];
     double clip_max_z = m_clipping_planes[1].get_data()[3];
-    for (unsigned int i = 0; i < (unsigned int)print_objects.size(); ++i)
-    {
+    for (unsigned int i = 0; i < (unsigned int)print_objects.size(); ++i) {
         const SLAPrintObject* obj = print_objects[i];
 
         if (!obj->is_step_done(slaposSliceSupports))
@@ -5474,10 +5517,8 @@ void GLCanvas3D::_render_sla_slices() const
             }
         }
 
-        if (!bottom_obj_triangles.empty() || !top_obj_triangles.empty() || !bottom_sup_triangles.empty() || !top_sup_triangles.empty())
-        {
-			for (const SLAPrintObject::Instance& inst : obj->instances())
-            {
+        if (!bottom_obj_triangles.empty() || !top_obj_triangles.empty() || !bottom_sup_triangles.empty() || !top_sup_triangles.empty()) {
+			for (const SLAPrintObject::Instance& inst : obj->instances()) {
                 glsafe(::glPushMatrix());
                 glsafe(::glTranslated(unscale<double>(inst.shift.x()), unscale<double>(inst.shift.y()), 0));
                 glsafe(::glRotatef(Geometry::rad2deg(inst.rotation), 0.0, 0.0, 1.0));
@@ -5517,8 +5558,7 @@ void GLCanvas3D::_render_selection_sidebar_hints() const
 
 void GLCanvas3D::_update_volumes_hover_state() const
 {
-    for (GLVolume* v : m_volumes.volumes)
-    {
+    for (GLVolume* v : m_volumes.volumes) {
         v->hover = GLVolume::HS_None;
     }
 
@@ -5529,8 +5569,7 @@ void GLCanvas3D::_update_volumes_hover_state() const
     bool shift_pressed = wxGetKeyState(WXK_SHIFT);  // select by rectangle
     bool alt_pressed = wxGetKeyState(WXK_ALT);      // deselect by rectangle
 
-    if (alt_pressed && (shift_pressed || ctrl_pressed))
-    {
+    if (alt_pressed && (shift_pressed || ctrl_pressed)) {
         // illegal combinations of keys
         m_hover_volume_idxs.clear();
         return;
@@ -5539,33 +5578,28 @@ void GLCanvas3D::_update_volumes_hover_state() const
     bool selection_modifiers_only = m_selection.is_empty() || m_selection.is_any_modifier();
 
     bool hover_modifiers_only = true;
-    for (int i : m_hover_volume_idxs)
-    {
-        if (!m_volumes.volumes[i]->is_modifier)
-        {
+    for (int i : m_hover_volume_idxs) {
+        if (!m_volumes.volumes[i]->is_modifier) {
             hover_modifiers_only = false;
             break;
         }
     }
 
     std::set<std::pair<int, int>> hover_instances;
-    for (int i : m_hover_volume_idxs)
-    {
+    for (int i : m_hover_volume_idxs) {
         const GLVolume& v = *m_volumes.volumes[i];
         hover_instances.insert(std::make_pair(v.object_idx(), v.instance_idx()));
     }
 
     bool hover_from_single_instance = hover_instances.size() == 1;
 
-    if (hover_modifiers_only && !hover_from_single_instance)
-    {
+    if (hover_modifiers_only && !hover_from_single_instance) {
         // do not allow to select volumes from different instances
         m_hover_volume_idxs.clear();
         return;
     }
 
-    for (int i : m_hover_volume_idxs)
-    {
+    for (int i : m_hover_volume_idxs) {
         GLVolume& volume = *m_volumes.volumes[i];
         if (volume.hover != GLVolume::HS_None)
             continue;
@@ -5574,8 +5608,7 @@ void GLCanvas3D::_update_volumes_hover_state() const
         // (volume->is_modifier && !selection_modifiers_only && !is_ctrl_pressed) -> allows hovering on selected modifiers belonging to selection of type Instance
         bool select = (!volume.selected || (volume.is_modifier && !selection_modifiers_only && !ctrl_pressed)) && !alt_pressed;
 
-        if (select || deselect)
-        {
+        if (select || deselect) {
             bool as_volume =
                 volume.is_modifier && hover_from_single_instance && !ctrl_pressed &&
                 (
@@ -5583,22 +5616,18 @@ void GLCanvas3D::_update_volumes_hover_state() const
                 (deselect && !m_selection.is_single_full_instance() && (volume.object_idx() == m_selection.get_object_idx()) && (volume.instance_idx() == m_selection.get_instance_idx()))
                 );
 
-            if (as_volume)
-            {
+            if (as_volume) {
                 if (deselect)
                     volume.hover = GLVolume::HS_Deselect;
                 else
                     volume.hover = GLVolume::HS_Select;
             }
-            else
-            {
+            else {
                 int object_idx = volume.object_idx();
                 int instance_idx = volume.instance_idx();
 
-                for (GLVolume* v : m_volumes.volumes)
-                {
-                    if ((v->object_idx() == object_idx) && (v->instance_idx() == instance_idx))
-                    {
+                for (GLVolume* v : m_volumes.volumes) {
+                    if (v->object_idx() == object_idx && v->instance_idx() == instance_idx) {
                         if (deselect)
                             v->hover = GLVolume::HS_Deselect;
                         else
@@ -5617,8 +5646,7 @@ void GLCanvas3D::_perform_layer_editing_action(wxMouseEvent* evt)
         return;
 
     // A volume is selected. Test, whether hovering over a layer thickness bar.
-    if (evt != nullptr)
-    {
+    if (evt != nullptr) {
         const Rect& rect = LayersEditing::get_bar_rect_screen(*this);
         float b = rect.get_bottom();
         m_layers_editing.last_z = m_layers_editing.object_max_z() * (b - evt->GetY() - 1.0f) / (b - rect.get_top());
@@ -5680,19 +5708,18 @@ void GLCanvas3D::_load_print_toolpaths()
     if (!print->is_step_done(psSkirt) || !print->is_step_done(psBrim))
         return;
 
-    if (!print->has_skirt() && (print->config().brim_width.value == 0))
+    if (!print->has_skirt() && !print->has_brim())
         return;
 
     const float color[] = { 0.5f, 1.0f, 0.5f, 1.0f }; // greenish
 
     // number of skirt layers
     size_t total_layer_count = 0;
-    for (const PrintObject* print_object : print->objects())
-    {
+    for (const PrintObject* print_object : print->objects()) {
         total_layer_count = std::max(total_layer_count, print_object->total_layer_count());
     }
     size_t skirt_height = print->has_infinite_skirt() ? total_layer_count : std::min<size_t>(print->config().skirt_height.value, total_layer_count);
-    if ((skirt_height == 0) && (print->config().brim_width.value > 0))
+    if ((skirt_height == 0) && print->has_brim())
         skirt_height = 1;
 
     // Get first skirt_height layers.
@@ -5769,8 +5796,7 @@ void GLCanvas3D::_load_print_object_toolpaths(const PrintObject& print_object, c
             auto it = std::find_if(color_print_values->begin(), color_print_values->end(),
                 [print_z](const CustomGCode::Item& code)
                 { return fabs(code.print_z - print_z) < EPSILON; });
-            if (it != color_print_values->end())
-            {
+            if (it != color_print_values->end()) {
                 CustomGCode::Type type = it->type;
                 // pause print or custom Gcode
                 if (type == CustomGCode::PausePrint ||
@@ -5790,8 +5816,7 @@ void GLCanvas3D::_load_print_object_toolpaths(const PrintObject& print_object, c
 
             const CustomGCode::Item value{print_z + EPSILON, CustomGCode::Custom, 0, ""};
             it = std::lower_bound(color_print_values->begin(), color_print_values->end(), value);
-            while (it != color_print_values->begin())
-            {
+            while (it != color_print_values->begin()) {
                 --it;
                 // change color for current extruder
                 if (it->type == CustomGCode::ColorChange) {
@@ -5910,8 +5935,7 @@ void GLCanvas3D::_load_print_object_toolpaths(const PrintObject& print_object, c
         tbb::blocked_range<size_t>(0, ctxt.layers.size(), grain_size),
         [&ctxt, &new_volume, is_selected_separate_extruder, this](const tbb::blocked_range<size_t>& range) {
         GLVolumePtrs 		vols;
-        std::vector<size_t>	color_print_layer_to_glvolume;
-        auto                volume = [&ctxt, &vols, &color_print_layer_to_glvolume, &range](size_t layer_idx, int extruder, int feature) -> GLVolume& {            
+        auto                volume = [&ctxt, &vols](size_t layer_idx, int extruder, int feature) -> GLVolume& {
             return *vols[ctxt.color_by_color_print()?
                 ctxt.color_print_color_idx_by_layer_idx_and_extruder(layer_idx, extruder) :
 				ctxt.color_by_tool() ? 
@@ -6254,6 +6278,24 @@ void GLCanvas3D::_update_sla_shells_outside_state()
     }
 }
 
+#if ENABLE_WARNING_TEXTURE_REMOVAL
+void GLCanvas3D::_set_warning_notification_if_needed(EWarning warning)
+{
+    _set_current();
+    bool show = false;
+    if (!m_volumes.empty())
+        show = _is_any_volume_outside();
+    else {
+        if (wxGetApp().is_editor()) {
+            BoundingBoxf3 test_volume = (m_config != nullptr) ? print_volume(*m_config) : BoundingBoxf3();
+            const BoundingBoxf3& paths_volume = m_gcode_viewer.get_paths_bounding_box();
+            if (test_volume.radius() > 0.0 && paths_volume.radius() > 0.0)
+                show = !test_volume.contains(paths_volume);
+        }
+    }
+    _set_warning_notification(warning, show);
+}
+#else
 void GLCanvas3D::_show_warning_texture_if_needed(WarningTexture::Warning warning)
 {
     _set_current();
@@ -6270,23 +6312,21 @@ void GLCanvas3D::_show_warning_texture_if_needed(WarningTexture::Warning warning
     }
     _set_warning_texture(warning, show);
 }
+#endif // ENABLE_WARNING_TEXTURE_REMOVAL
 
 std::vector<float> GLCanvas3D::_parse_colors(const std::vector<std::string>& colors)
 {
     static const float INV_255 = 1.0f / 255.0f;
 
     std::vector<float> output(colors.size() * 4, 1.0f);
-    for (size_t i = 0; i < colors.size(); ++i)
-    {
+    for (size_t i = 0; i < colors.size(); ++i) {
         const std::string& color = colors[i];
         const char* c = color.data() + 1;
-        if ((color.size() == 7) && (color.front() == '#'))
-        {
-            for (size_t j = 0; j < 3; ++j)
-            {
+        if (color.size() == 7 && color.front() == '#') {
+            for (size_t j = 0; j < 3; ++j) {
                 int digit1 = hex_digit_to_int(*c++);
                 int digit2 = hex_digit_to_int(*c++);
-                if ((digit1 == -1) || (digit2 == -1))
+                if (digit1 == -1 || digit2 == -1)
                     break;
 
                 output[i * 4 + j] = float(digit1 * 16 + digit2) * INV_255;
@@ -6296,10 +6336,42 @@ std::vector<float> GLCanvas3D::_parse_colors(const std::vector<std::string>& col
     return output;
 }
 
+#if ENABLE_WARNING_TEXTURE_REMOVAL
+void GLCanvas3D::_set_warning_notification(EWarning warning, bool state)
+{
+    std::string text;
+    bool error = false;
+    switch (warning) {
+    case EWarning::ObjectOutside:      text = _u8L("An object outside the print area was detected."); break;
+    case EWarning::ToolpathOutside:    text = _u8L("A toolpath outside the print area was detected."); error = true; break;
+    case EWarning::SlaSupportsOutside: text = _u8L("SLA supports outside the print area were detected."); error = true; break;
+    case EWarning::SomethingNotShown:  text = _u8L("Some objects are not visible."); break;
+    case EWarning::ObjectClashed:
+        text = _u8L("An object outside the print area was detected.\n"
+            "Resolve the current problem to continue slicing.");
+        error = true;
+        break;
+}
+    auto& notification_manager = *wxGetApp().plater()->get_notification_manager();
+    if (state) {
+        if (error)
+            notification_manager.push_plater_error_notification(text);
+        else
+            notification_manager.push_plater_warning_notification(text);
+    }
+    else {
+        if (error)
+            notification_manager.close_plater_error_notification(text);
+        else
+            notification_manager.close_plater_warning_notification(text);
+    }
+}
+#else
 void GLCanvas3D::_set_warning_texture(WarningTexture::Warning warning, bool state)
 {
     m_warning_texture.activate(warning, state, *this);
 }
+#endif // !ENABLE_WARNING_TEXTURE_REMOVAL
 
 bool GLCanvas3D::_is_any_volume_outside() const
 {
@@ -6315,8 +6387,7 @@ void GLCanvas3D::_update_selection_from_hover()
 {
     bool ctrl_pressed = wxGetKeyState(WXK_CONTROL);
 
-    if (m_hover_volume_idxs.empty())
-    {
+    if (m_hover_volume_idxs.empty()) {
         if (!ctrl_pressed && (m_rectangle_selection.get_state() == GLSelectionRectangle::Select))
             m_selection.remove_all();
 
@@ -6326,50 +6397,40 @@ void GLCanvas3D::_update_selection_from_hover()
     GLSelectionRectangle::EState state = m_rectangle_selection.get_state();
 
     bool hover_modifiers_only = true;
-    for (int i : m_hover_volume_idxs)
-    {
-        if (!m_volumes.volumes[i]->is_modifier)
-        {
+    for (int i : m_hover_volume_idxs) {
+        if (!m_volumes.volumes[i]->is_modifier) {
             hover_modifiers_only = false;
             break;
         }
     }
 
     bool selection_changed = false;
-    if (state == GLSelectionRectangle::Select)
-    {
+    if (state == GLSelectionRectangle::Select) {
         bool contains_all = true;
-        for (int i : m_hover_volume_idxs)
-        {
-            if (!m_selection.contains_volume((unsigned int)i))
-            {
+        for (int i : m_hover_volume_idxs) {
+            if (!m_selection.contains_volume((unsigned int)i)) {
                 contains_all = false;
                 break;
             }
         }
 
         // the selection is going to be modified (Add)
-        if (!contains_all)
-        {
+        if (!contains_all) {
             wxGetApp().plater()->take_snapshot(_(L("Selection-Add from rectangle")));
             selection_changed = true;
         }
     }
-    else
-    {
+    else {
         bool contains_any = false;
-        for (int i : m_hover_volume_idxs)
-        {
-            if (m_selection.contains_volume((unsigned int)i))
-            {
+        for (int i : m_hover_volume_idxs) {
+            if (m_selection.contains_volume((unsigned int)i)) {
                 contains_any = true;
                 break;
             }
         }
 
         // the selection is going to be modified (Remove)
-        if (contains_any)
-        {
+        if (contains_any) {
             wxGetApp().plater()->take_snapshot(_(L("Selection-Remove from rectangle")));
             selection_changed = true;
         }
@@ -6383,12 +6444,9 @@ void GLCanvas3D::_update_selection_from_hover()
     if ((state == GLSelectionRectangle::Select) && !ctrl_pressed)
         m_selection.clear();
 
-    for (int i : m_hover_volume_idxs)
-    {
-        if (state == GLSelectionRectangle::Select)
-        {
-            if (hover_modifiers_only)
-            {
+    for (int i : m_hover_volume_idxs) {
+        if (state == GLSelectionRectangle::Select) {
+            if (hover_modifiers_only) {
                 const GLVolume& v = *m_volumes.volumes[i];
                 m_selection.add_volume(v.object_idx(), v.volume_idx(), v.instance_idx(), false);
             }
@@ -6411,13 +6469,11 @@ void GLCanvas3D::_update_selection_from_hover()
 
 bool GLCanvas3D::_deactivate_undo_redo_toolbar_items()
 {
-    if (m_undoredo_toolbar.is_item_pressed("undo"))
-    {
+    if (m_undoredo_toolbar.is_item_pressed("undo")) {
         m_undoredo_toolbar.force_right_action(m_undoredo_toolbar.get_item_id("undo"), *this);
         return true;
     }
-    else if (m_undoredo_toolbar.is_item_pressed("redo"))
-    {
+    else if (m_undoredo_toolbar.is_item_pressed("redo")) {
         m_undoredo_toolbar.force_right_action(m_undoredo_toolbar.get_item_id("redo"), *this);
         return true;
     }
@@ -6442,8 +6498,7 @@ bool GLCanvas3D::_deactivate_arrange_menu()
 
 bool GLCanvas3D::_deactivate_search_toolbar_item()
 {
-    if (is_search_pressed())
-    {
+    if (is_search_pressed()) {
         m_main_toolbar.force_left_action(m_main_toolbar.get_item_id("search"), *this);
         return true;
     }
@@ -6453,8 +6508,7 @@ bool GLCanvas3D::_deactivate_search_toolbar_item()
 
 bool GLCanvas3D::_activate_search_toolbar_item()
 {
-    if (!m_main_toolbar.is_item_pressed("search"))
-    {
+    if (!m_main_toolbar.is_item_pressed("search")) {
         m_main_toolbar.force_left_action(m_main_toolbar.get_item_id("search"), *this);
         return true;
     }
@@ -6465,8 +6519,7 @@ bool GLCanvas3D::_activate_search_toolbar_item()
 bool GLCanvas3D::_deactivate_collapse_toolbar_items()
 {
     GLToolbar& collapse_toolbar = wxGetApp().plater()->get_collapse_toolbar();
-    if (collapse_toolbar.is_item_pressed("print"))
-    {
+    if (collapse_toolbar.is_item_pressed("print")) {
         collapse_toolbar.force_left_action(collapse_toolbar.get_item_id("print"), *this);
         return true;
     }

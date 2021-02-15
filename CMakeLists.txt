@@ -35,14 +35,26 @@ option(SLIC3R_ASAN              "Enable ASan on Clang and GCC" 0)
 
 set(SLIC3R_GTK "2" CACHE STRING "GTK version to use with wxWidgets on Linux")
 
+set(IS_CROSS_COMPILE FALSE)
+
 if (APPLE)
     set(CMAKE_FIND_FRAMEWORK LAST)
     set(CMAKE_FIND_APPBUNDLE LAST)
+    list(FIND CMAKE_OSX_ARCHITECTURES ${CMAKE_SYSTEM_PROCESSOR} _arch_idx)
+    if (CMAKE_OSX_ARCHITECTURES AND _arch_idx LESS 0)
+        set(IS_CROSS_COMPILE TRUE)
+    endif ()
 endif ()
 
 # Proposal for C++ unit tests and sandboxes
 option(SLIC3R_BUILD_SANDBOXES   "Build development sandboxes" OFF)
 option(SLIC3R_BUILD_TESTS       "Build unit tests" ON)
+
+if (IS_CROSS_COMPILE)
+    message("Detected cross compilation setup. Tests and encoding checks will be forcedly disabled!")
+    set(SLIC3R_PERL_XS OFF CACHE BOOL "" FORCE)
+    set(SLIC3R_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+endif ()
 
 # Print out the SLIC3R_* cache options
 get_cmake_property(_cache_vars CACHE_VARIABLES)
@@ -80,10 +92,19 @@ if (MSVC)
     # Disable STL4007: Many result_type typedefs and all argument_type, first_argument_type, and second_argument_type typedefs are deprecated in C++17.
     #FIXME Remove this line after eigen library adapts to the new C++17 adaptor rules.
     add_compile_options(-D_SILENCE_CXX17_ADAPTOR_TYPEDEFS_DEPRECATION_WARNING)
+    # Disable warnings on conversion from unsigned to signed (possible loss of data)
+    # C4244: 'conversion' conversion from 'type1' to 'type2', possible loss of data. An integer type is converted to a smaller integer type.
+    # C4267: The compiler detected a conversion from size_t to a smaller type.
+    add_compile_options(/wd4244 /wd4267)
 endif ()
 
 if (MINGW)
     add_compile_options(-Wa,-mbig-obj)
+endif ()
+
+if (NOT MSVC)
+    # ARMs (Raspberry PI) use an unsigned char by default. Let's make it consistent for PrusaSlicer on all platforms.
+    add_compile_options(-fsigned-char)
 endif ()
 
 # Display and check CMAKE_PREFIX_PATH
@@ -190,6 +211,13 @@ if (NOT MSVC AND ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR "${CMAKE_CXX_COMP
         add_compile_options(-Wno-ignored-attributes) # Tamas: Eigen include dirs are marked as SYSTEM
     endif()
 
+    # Clang reports legacy OpenGL calls as deprecated. Turn off the warning for now
+    # to reduce the clutter, we know about this one. It should be reenabled after
+    # we finally get rid of the deprecated code.
+    if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
+        add_compile_options(-Wno-deprecated-declarations)
+    endif()
+
     #GCC generates loads of -Wunknown-pragmas when compiling igl. The fix is not easy due to a bug in gcc, see
     # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=66943 or
     # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=53431
@@ -223,13 +251,16 @@ include_directories(${LIBDIR})
 # For generated header files
 include_directories(${LIBDIR_BIN}/platform)
 # For libslic3r.h
-include_directories(${LIBDIR}/clipper ${LIBDIR}/polypartition)
+include_directories(${LIBDIR}/clipper)
 
 if(WIN32)
     add_definitions(-D_USE_MATH_DEFINES -D_WIN32 -D_CRT_SECURE_NO_WARNINGS -D_SCL_SECURE_NO_WARNINGS)
     if(MSVC)
         # BOOST_ALL_NO_LIB: Avoid the automatic linking of Boost libraries on Windows. Rather rely on explicit linking.
         add_definitions(-DBOOST_ALL_NO_LIB -DBOOST_USE_WINAPI_VERSION=0x601 -DBOOST_SYSTEM_USE_UTF8 )
+        # Force the source code encoding to UTF-8. See PrusaSlicer GH pull request #5583
+        add_compile_options("$<$<C_COMPILER_ID:MSVC>:/utf-8>")
+        add_compile_options("$<$<CXX_COMPILER_ID:MSVC>:/utf-8>")
     endif(MSVC)
 endif(WIN32)
 
@@ -266,10 +297,9 @@ if(SLIC3R_STATIC)
 endif()
 #set(Boost_DEBUG ON)
 # set(Boost_COMPILER "-mgw81")
-if(NOT WIN32)
-    # boost::process was introduced first in version 1.64.0
-    set(MINIMUM_BOOST_VERSION "1.64.0")
-endif()
+# boost::process was introduced first in version 1.64.0,
+# boost::beast::detail::base64 was introduced first in version 1.66.0
+set(MINIMUM_BOOST_VERSION "1.66.0")
 set(_boost_components "system;filesystem;thread;log;locale;regex;chrono;atomic;date_time")
 find_package(Boost ${MINIMUM_BOOST_VERSION} REQUIRED COMPONENTS ${_boost_components})
 

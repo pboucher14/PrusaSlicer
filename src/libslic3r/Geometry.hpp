@@ -11,7 +11,16 @@
 #include <cereal/access.hpp>
 
 #define BOOST_VORONOI_USE_GMP 1
+
+#ifdef _MSC_VER
+// Suppress warning C4146 in OpenVDB: unary minus operator applied to unsigned type, result still unsigned 
+#pragma warning(push)
+#pragma warning(disable : 4146)
+#endif // _MSC_VER
 #include "boost/polygon/voronoi.hpp"
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif // _MSC_VER
 
 namespace ClipperLib {
 class PolyNode;
@@ -213,7 +222,7 @@ inline bool liang_barsky_line_clipping_interval(
     double t0 = 0.0;
     double t1 = 1.0;
     // Traverse through left, right, bottom, top edges.
-    auto clip_side = [&x0, &v, &bbox, &t0, &t1](double p, double q) -> bool {
+    auto clip_side = [&t0, &t1](double p, double q) -> bool {
         if (p == 0) {
             if (q < 0)
                 // Line parallel to the bounding box edge is fully outside of the bounding box.
