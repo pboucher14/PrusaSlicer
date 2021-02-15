@@ -290,6 +290,12 @@ void Preset::normalize(DynamicPrintConfig &config)
                 static_cast<ConfigOptionStrings*>(opt)->values.resize(n, std::string());
         }
     }
+    if (const auto *gap_fill_speed = config.option<ConfigOptionFloat>("gap_fill_speed", false); gap_fill_speed && gap_fill_speed->value <= 0.) {
+        // Legacy conversion. If the gap fill speed is zero, it means the gap fill is not enabled.
+        // Set the new gap_fill_enabled value, so that it will show up in the UI as disabled.
+        if (auto *gap_fill_enabled = config.option<ConfigOptionBool>("gap_fill_enabled", false); gap_fill_enabled)
+            gap_fill_enabled->value = false;
+    }
 }
 
 std::string Preset::remove_invalid_keys(DynamicPrintConfig &config, const DynamicPrintConfig &default_config)
@@ -411,15 +417,15 @@ const std::vector<std::string>& Preset::print_options()
         "solid_infill_below_area", "only_retract_when_crossing_perimeters", "infill_first", 
     	"ironing", "ironing_type", "ironing_flowrate", "ironing_speed", "ironing_spacing",
         "max_print_speed", "max_volumetric_speed", "avoid_crossing_perimeters_max_detour",
-        "fuzzy_skin_perimeter_mode", /* "fuzzy_skin_shape", */ "fuzzy_skin_thickness", "fuzzy_skin_point_dist",
+        "fuzzy_skin", "fuzzy_skin_thickness", "fuzzy_skin_point_dist",
 #ifdef HAS_PRESSURE_EQUALIZER
         "max_volumetric_extrusion_rate_slope_positive", "max_volumetric_extrusion_rate_slope_negative",
 #endif /* HAS_PRESSURE_EQUALIZER */
         "perimeter_speed", "small_perimeter_speed", "external_perimeter_speed", "infill_speed", "solid_infill_speed",
         "top_solid_infill_speed", "support_material_speed", "support_material_xy_spacing", "support_material_interface_speed",
-        "bridge_speed", "gap_fill_speed", "travel_speed", "first_layer_speed", "perimeter_acceleration", "infill_acceleration",
+        "bridge_speed", "gap_fill_speed", "gap_fill_enabled", "travel_speed", "first_layer_speed", "perimeter_acceleration", "infill_acceleration",
         "bridge_acceleration", "first_layer_acceleration", "default_acceleration", "skirts", "skirt_distance", "skirt_height", "draft_shield",
-        "min_skirt_length", "brim_width", "support_material", "support_material_auto", "support_material_threshold", "support_material_enforce_layers",
+        "min_skirt_length", "brim_width", "brim_offset", "brim_type", "support_material", "support_material_auto", "support_material_threshold", "support_material_enforce_layers",
         "raft_layers", "support_material_pattern", "support_material_with_sheath", "support_material_spacing",
         "support_material_synchronize_layers", "support_material_angle", "support_material_interface_layers",
         "support_material_interface_spacing", "support_material_interface_contact_loops", "support_material_contact_distance",
@@ -614,10 +620,6 @@ PresetCollection::PresetCollection(Preset::Type type, const std::vector<std::str
     // Insert just the default preset.
     this->add_default_preset(keys, defaults, default_name);
     m_edited_preset.config.apply(m_presets.front().config);
-}
-
-PresetCollection::~PresetCollection()
-{
 }
 
 void PresetCollection::reset(bool delete_files)
@@ -1276,6 +1278,18 @@ std::vector<std::string> PresetCollection::merge_presets(PresetCollection &&othe
             duplicates.emplace_back(std::move(preset.name));
     }
     return duplicates;
+}
+
+void PresetCollection::update_vendor_ptrs_after_copy(const VendorMap &new_vendors)
+{
+    for (Preset &preset : m_presets)
+        if (preset.vendor != nullptr) {
+            assert(! preset.is_default && ! preset.is_external);
+            // Re-assign a pointer to the vendor structure in the new PresetBundle.
+            auto it = new_vendors.find(preset.vendor->id);
+            assert(it != new_vendors.end());
+            preset.vendor = &it->second;
+        }
 }
 
 void PresetCollection::update_map_alias_to_profile_name()

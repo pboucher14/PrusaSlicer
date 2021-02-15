@@ -678,6 +678,7 @@ static inline bool line_rounded_thick_segment_collision(
     return intersects;
 }
 
+#ifndef NDEBUG
 static inline bool inside_interval(double low, double high, double p)
 {
     return p >= low && p <= high;
@@ -702,6 +703,7 @@ static inline bool cyclic_interval_inside_interval(double outer_low, double oute
     }
     return interval_inside_interval(outer_low, outer_high, inner_low, inner_high, double(SCALED_EPSILON));
 }
+#endif // NDEBUG
 
 // #define INFILL_DEBUG_OUTPUT
 
@@ -1129,7 +1131,7 @@ void Fill::connect_infill(Polylines &&infill_ordered, const std::vector<const Po
 			intersection_points.reserve(infill_ordered.size() * 2);
 			for (const Polyline &pl : infill_ordered)
 				for (const Point *pt : { &pl.points.front(), &pl.points.back() }) {
-					EdgeGrid::Grid::ClosestPointResult cp = grid.closest_point(*pt, coord_t(SCALED_EPSILON));
+					EdgeGrid::Grid::ClosestPointResult cp = grid.closest_point_signed_distance(*pt, coord_t(SCALED_EPSILON));
 					if (cp.valid()) {
 						// The infill end point shall lie on the contour.
 						assert(cp.distance <= 3.);

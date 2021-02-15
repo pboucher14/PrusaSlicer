@@ -15,7 +15,7 @@ static constexpr float ENFORCER_BLOCKER_PENALTY = 100;
 
 // In case there are custom enforcers/blockers, the loop polygon shall always have
 // sides smaller than this (so it isn't limited to original resolution).
-static constexpr float MINIMAL_POLYGON_SIDE = scale_(0.2f);
+static constexpr float MINIMAL_POLYGON_SIDE = scaled<float>(0.2f);
 
 // When spAligned is active and there is a support enforcer,
 // add this penalty to its center.
@@ -664,7 +664,7 @@ static std::vector<size_t> find_enforcer_centers(const Polygon& polygon,
     if (polygon.size() < 2 || enforcers_idxs.empty())
         return out;
 
-    auto get_center_idx = [&polygon, &lengths](size_t start_idx, size_t end_idx) -> size_t {
+    auto get_center_idx = [&lengths](size_t start_idx, size_t end_idx) -> size_t {
         assert(end_idx >= start_idx);
         if (start_idx == end_idx)
             return start_idx;

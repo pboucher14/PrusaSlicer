@@ -25,7 +25,7 @@ struct SurfaceFillParams
     // in unscaled coordinates
     coordf_t    	spacing = 0.;
     // infill / perimeter overlap, in unscaled coordinates
-    coordf_t    	overlap = 0.;
+//    coordf_t    	overlap = 0.;
     // Angle as provided by the region config, in radians.
     float       	angle = 0.f;
     // Non-negative for a bridge.
@@ -34,7 +34,7 @@ struct SurfaceFillParams
     // FillParams
     float       	density = 0.f;
     // Don't adjust spacing to fill the space evenly.
-    bool        	dont_adjust = false;
+//    bool        	dont_adjust = false;
     // Length of the infill anchor along the perimeter line.
     // 1000mm is roughly the maximum length line that fits into a 32bit coord_t.
     float 			anchor_length     = 1000.f;
@@ -64,10 +64,10 @@ struct SurfaceFillParams
 		RETURN_COMPARE_NON_EQUAL(extruder);
 		RETURN_COMPARE_NON_EQUAL_TYPED(unsigned, pattern);
 		RETURN_COMPARE_NON_EQUAL(spacing);
-		RETURN_COMPARE_NON_EQUAL(overlap);
+//		RETURN_COMPARE_NON_EQUAL(overlap);
 		RETURN_COMPARE_NON_EQUAL(angle);
 		RETURN_COMPARE_NON_EQUAL(density);
-		RETURN_COMPARE_NON_EQUAL_TYPED(unsigned, dont_adjust);
+//		RETURN_COMPARE_NON_EQUAL_TYPED(unsigned, dont_adjust);
 		RETURN_COMPARE_NON_EQUAL(anchor_length);
 		RETURN_COMPARE_NON_EQUAL(anchor_length_max);
 		RETURN_COMPARE_NON_EQUAL(flow.width);
@@ -83,10 +83,10 @@ struct SurfaceFillParams
 				this->pattern 			== rhs.pattern 			&&
 				this->pattern 			== rhs.pattern 			&&
 				this->spacing 			== rhs.spacing 			&&
-				this->overlap 			== rhs.overlap 			&&
+//				this->overlap 			== rhs.overlap 			&&
 				this->angle   			== rhs.angle   			&&
 				this->density   		== rhs.density   		&&
-				this->dont_adjust   	== rhs.dont_adjust 		&&
+//				this->dont_adjust   	== rhs.dont_adjust 		&&
 				this->anchor_length  	== rhs.anchor_length    &&
 				this->anchor_length_max == rhs.anchor_length_max &&
 				this->flow 				== rhs.flow 			&&
@@ -130,7 +130,7 @@ std::vector<SurfaceFill> group_fills(const Layer &layer)
 		            params.density = 100.f;
 		            params.pattern = (surface.is_external() && ! is_bridge) ? 
 						(surface.is_top() ? region_config.top_fill_pattern.value : region_config.bottom_fill_pattern.value) :
-		                ipRectilinear;
+		                region_config.top_fill_pattern == ipMonotonic ? ipMonotonic : ipRectilinear;
 		        } else if (params.density <= 0)
 		            continue;
 
@@ -158,6 +158,7 @@ std::vector<SurfaceFill> group_fills(const Layer &layer)
 		            params.spacing = params.flow.spacing();
 		            // Don't limit anchor length for solid or bridging infill.
 		            params.anchor_length = 1000.f;
+					params.anchor_length_max = 1000.f;
 		        } else {
 		            // it's internal infill, so we can calculate a generic flow spacing 
 		            // for all layers, for avoiding the ugly effect of
@@ -173,13 +174,13 @@ std::vector<SurfaceFill> group_fills(const Layer &layer)
 			            ).spacing();
 		            // Anchor a sparse infill to inner perimeters with the following anchor length:
 			        params.anchor_length = float(region_config.infill_anchor);
-			        if (region_config.infill_anchor.percent)
-			        	params.anchor_length = float(params.anchor_length * 0.01 * params.spacing);
-			        params.anchor_length_max = float(region_config.infill_anchor_max);
-			        if (region_config.infill_anchor_max.percent)
-			        	params.anchor_length_max = float(params.anchor_length_max * 0.01 * params.spacing);
-		        }
-		        params.anchor_length = std::min(params.anchor_length, params.anchor_length_max);
+					if (region_config.infill_anchor.percent)
+						params.anchor_length = float(params.anchor_length * 0.01 * params.spacing);
+					params.anchor_length_max = float(region_config.infill_anchor_max);
+					if (region_config.infill_anchor_max.percent)
+						params.anchor_length_max = float(params.anchor_length_max * 0.01 * params.spacing);
+					params.anchor_length = std::min(params.anchor_length, params.anchor_length_max);
+				}
 
 		        auto it_params = set_surface_params.find(params);
 		        if (it_params == set_surface_params.end())
@@ -284,7 +285,7 @@ std::vector<SurfaceFill> group_fills(const Layer &layer)
 	        if (internal_solid_fill == nullptr) {
 	        	// Produce another solid fill.
 		        params.extruder 	 = layerm.region()->extruder(frSolidInfill);
-	            params.pattern 		 = ipRectilinear;
+	            params.pattern 		 = layerm.region()->config().top_fill_pattern == ipMonotonic ? ipMonotonic : ipRectilinear;
 	            params.density 		 = 100.f;
 		        params.extrusion_role = erInternalInfill;
 		        params.angle 		= float(Geometry::deg2rad(layerm.region()->config().fill_angle.value));
@@ -384,7 +385,7 @@ void Layer::make_fills(FillAdaptive::Octree* adaptive_fill_octree, FillAdaptive:
         // apply half spacing using this flow's own spacing and generate infill
         FillParams params;
         params.density 		     = float(0.01 * surface_fill.params.density);
-        params.dont_adjust 	     = surface_fill.params.dont_adjust; // false
+		params.dont_adjust		 = false; //  surface_fill.params.dont_adjust;
         params.anchor_length     = surface_fill.params.anchor_length;
 		params.anchor_length_max = surface_fill.params.anchor_length_max;
 
@@ -532,6 +533,7 @@ void Layer::make_ironing()
 				}
 			}
 			if (ironing_params.extruder != -1) {
+				//TODO just_infill is currently not used.
 				ironing_params.just_infill 	= false;
 				ironing_params.line_spacing = config.ironing_spacing;
 				ironing_params.height 		= default_layer_height * 0.01 * config.ironing_flowrate;
@@ -562,17 +564,54 @@ void Layer::make_ironing()
 		ExPolygons ironing_areas;
 		double nozzle_dmr = this->object()->print()->config().nozzle_diameter.values[ironing_params.extruder - 1];
 		if (ironing_params.just_infill) {
+			//TODO just_infill is currently not used.
 			// Just infill.
 		} else {
 			// Infill and perimeter.
 			// Merge top surfaces with the same ironing parameters.
 			Polygons polys;
-			for (size_t k = i; k < j; ++ k)
-				for (const Surface &surface : by_extruder[k].layerm->slices.surfaces)
-					if (surface.surface_type == stTop)
+			Polygons infills;
+			for (size_t k = i; k < j; ++ k) {
+				const IroningParams		 &ironing_params  = by_extruder[k];
+				const PrintRegionConfig  &region_config   = ironing_params.layerm->region()->config();
+				bool					  iron_everything = region_config.ironing_type == IroningType::AllSolid;
+				bool					  iron_completely = iron_everything;
+				if (iron_everything) {
+					// Check whether there is any non-solid hole in the regions.
+					bool internal_infill_solid = region_config.fill_density.value > 95.;
+					for (const Surface &surface : ironing_params.layerm->fill_surfaces.surfaces)
+						if ((! internal_infill_solid && surface.surface_type == stInternal) || surface.surface_type == stInternalBridge || surface.surface_type == stInternalVoid) {
+							// Some fill region is not quite solid. Don't iron over the whole surface.
+							iron_completely = false;
+							break;
+						}
+				}
+				if (iron_completely) {
+					// Iron everything. This is likely only good for solid transparent objects.
+					for (const Surface &surface : ironing_params.layerm->slices.surfaces)
 						polygons_append(polys, surface.expolygon);
+				} else {
+					for (const Surface &surface : ironing_params.layerm->slices.surfaces)
+						if (surface.surface_type == stTop || (iron_everything && surface.surface_type == stBottom))
+							// stBottomBridge is not being ironed on purpose, as it would likely destroy the bridges.
+							polygons_append(polys, surface.expolygon);
+				}
+				if (iron_everything && ! iron_completely) {
+					// Add solid fill surfaces. This may not be ideal, as one will not iron perimeters touching these
+					// solid fill surfaces, but it is likely better than nothing.
+					for (const Surface &surface : ironing_params.layerm->fill_surfaces.surfaces)
+						if (surface.surface_type == stInternalSolid)
+							polygons_append(infills, surface.expolygon);
+				}
+			}
 			// Trim the top surfaces with half the nozzle diameter.
 			ironing_areas = intersection_ex(polys, offset(this->lslices, - float(scale_(0.5 * nozzle_dmr))));
+			if (! infills.empty()) {
+				// For IroningType::AllSolid only:
+				// Add solid infill areas for layers, that contain some non-ironable infil (sparse infill, bridge infill).
+				append(infills, to_polygons(std::move(ironing_areas)));
+				ironing_areas = union_ex(infills, true);
+			}
 		}
 
         // Create the filler object.

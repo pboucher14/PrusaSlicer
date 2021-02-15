@@ -203,6 +203,7 @@ namespace search_for_drives_internal
 		}
 	}
 
+#if ! __APPLE__
 	static void search_path(const std::string &path, const std::string &parent_path, std::vector<DriveData> &out)
 	{
 	    glob_t globbuf;
@@ -217,6 +218,7 @@ namespace search_for_drives_internal
 		}
 		globfree(&globbuf);
 	}
+#endif // ! __APPLE__
 }
 
 std::vector<DriveData> RemovableDriveManager::search_for_removable_drives() const

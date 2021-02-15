@@ -13,6 +13,7 @@
 #include "libslic3r/Model.hpp"
 #include "GLCanvas3D.hpp"
 #include "Selection.hpp"
+#include "format.hpp"
 
 #include <boost/algorithm/string.hpp>
 #include "slic3r/Utils/FixModelByWin10.hpp"
@@ -97,7 +98,7 @@ ObjectList::ObjectList(wxWindow* parent) :
         CATEGORY_ICON[L("Extruders")]                = create_scaled_bitmap("funnel");
         CATEGORY_ICON[L("Extrusion Width")]          = create_scaled_bitmap("funnel");
         CATEGORY_ICON[L("Wipe options")]             = create_scaled_bitmap("funnel");
-//         CATEGORY_ICON[L("Skirt and brim")]          = create_scaled_bitmap("skirt+brim"); 
+        CATEGORY_ICON[L("Skirt and brim")]           = create_scaled_bitmap("skirt+brim");
 //         CATEGORY_ICON[L("Speed > Acceleration")]    = create_scaled_bitmap("time");
         CATEGORY_ICON[L("Advanced")]                 = create_scaled_bitmap("wrench");
         // ptSLA
@@ -116,7 +117,9 @@ ObjectList::ObjectList(wxWindow* parent) :
         // detect the current mouse position here, to pass it to list_manipulation() method
         // if we detect it later, the user may have moved the mouse pointer while calculations are performed, and this would mess-up the HitTest() call performed into list_manipulation()
         // see: https://github.com/prusa3d/PrusaSlicer/issues/3802
+#ifndef __WXOSX__
         const wxPoint mouse_pos = this->get_mouse_position_in_control();
+#endif
 
 #ifndef __APPLE__
         // On Windows and Linux, forces a kill focus emulation on the object manipulator fields because this event handler is called
@@ -413,27 +416,27 @@ wxString ObjectList::get_mesh_errors_list(const int obj_idx, const int vol_idx /
         return ""; // hide tooltip
 
     // Create tooltip string, if there are errors 
-    wxString tooltip = wxString::Format(_(L("Auto-repaired (%d errors):")), errors) + "\n";
+    wxString tooltip = format_wxstr(_L_PLURAL("Auto-repaired %1$d error", "Auto-repaired %1$d errors", errors), errors) + ":\n";
 
     const stl_stats& stats = vol_idx == -1 ?
                             (*m_objects)[obj_idx]->get_object_stl_stats() :
                             (*m_objects)[obj_idx]->volumes[vol_idx]->mesh().stl.stats;
 
-    std::map<std::string, int> error_msg = {
-        { L("degenerate facets"),   stats.degenerate_facets },
-        { L("edges fixed"),         stats.edges_fixed       },
-        { L("facets removed"),      stats.facets_removed    },
-        { L("facets added"),        stats.facets_added      },
-        { L("facets reversed"),     stats.facets_reversed   },
-        { L("backwards edges"),     stats.backwards_edges   }
-    };
-
-    for (const auto& error : error_msg)
-        if (error.second > 0)
-            tooltip += from_u8((boost::format("\t%1% %2%\n") % error.second % _utf8(error.first)).str());
+    if (stats.degenerate_facets > 0)
+        tooltip += "\t" + format_wxstr(_L_PLURAL("%1$d degenerate facet", "%1$d degenerate facets", stats.degenerate_facets), stats.degenerate_facets) + "\n";
+    if (stats.edges_fixed > 0)
+        tooltip += "\t" + format_wxstr(_L_PLURAL("%1$d edge fixed", "%1$d edges fixed", stats.edges_fixed), stats.edges_fixed) + "\n";
+    if (stats.facets_removed > 0)
+        tooltip += "\t" + format_wxstr(_L_PLURAL("%1$d facet removed", "%1$d facets removed", stats.facets_removed), stats.facets_removed) + "\n";
+    if (stats.facets_added > 0)
+        tooltip += "\t" + format_wxstr(_L_PLURAL("%1$d facet added", "%1$d facets added", stats.facets_added), stats.facets_added) + "\n";
+    if (stats.facets_reversed > 0)
+        tooltip += "\t" + format_wxstr(_L_PLURAL("%1$d facet reversed", "%1$d facets reversed", stats.facets_reversed), stats.facets_reversed) + "\n";
+    if (stats.backwards_edges > 0)
+        tooltip += "\t" + format_wxstr(_L_PLURAL("%1$d backwards edge", "%1$d backwards edges", stats.backwards_edges), stats.backwards_edges) + "\n";
 
     if (is_windows10())
-        tooltip += _(L("Right button click the icon to fix STL through Netfabb"));
+        tooltip += _L("Right button click the icon to fix STL through Netfabb");
 
     return tooltip;
 }
@@ -686,7 +689,7 @@ void ObjectList::msw_rescale_icons()
         CATEGORY_ICON[L("Extruders")]                = create_scaled_bitmap("funnel");
         CATEGORY_ICON[L("Extrusion Width")]          = create_scaled_bitmap("funnel");
         CATEGORY_ICON[L("Wipe options")]             = create_scaled_bitmap("funnel");
-//         CATEGORY_ICON[L("Skirt and brim")]          = create_scaled_bitmap("skirt+brim"); 
+        CATEGORY_ICON[L("Skirt and brim")]           = create_scaled_bitmap("skirt+brim");
 //         CATEGORY_ICON[L("Speed > Acceleration")]    = create_scaled_bitmap("time");
         CATEGORY_ICON[L("Advanced")]                 = create_scaled_bitmap("wrench");
         // ptSLA
@@ -751,7 +754,7 @@ void ObjectList::copy_layers_to_clipboard()
         return;
     }
 
-    for (const auto layer_item : sel_layers)
+    for (const auto& layer_item : sel_layers)
         if (m_objects_model->GetItemType(layer_item) & itLayer) {
             auto range = m_objects_model->GetLayerRangeByItem(layer_item);
             auto it = ranges.find(range);
@@ -777,7 +780,7 @@ void ObjectList::paste_layers_into_list()
     t_layer_config_ranges& ranges = object(obj_idx)->layer_config_ranges;
 
     // and create Layer item(s) according to the layer_config_ranges
-    for (const auto range : cache_ranges)
+    for (const auto& range : cache_ranges)
         ranges.emplace(range);
 
     layers_item = add_layer_root_item(object_item);
@@ -1020,7 +1023,7 @@ void ObjectList::show_context_menu(const bool evt_context_menu)
                        printer_technology() == ptFFF ? &m_menu_object : &m_menu_sla_object;
 
         if (type & (itObject | itVolume))
-            append_menu_item_convert_unit(menu);
+            append_menu_items_convert_unit(menu);
         if (!(type & itInstance))
             append_menu_item_settings(menu);
     }
@@ -1211,7 +1214,7 @@ void ObjectList::OnBeginDrag(wxDataViewEvent &event)
     **/
     m_prevent_list_events = true;//it's needed for GTK
 
-    /* Under GTK, DnD requires to the wxTextDataObject been initialized with some valid vaSome textlue,
+    /* Under GTK, DnD requires to the wxTextDataObject been initialized with some valid value,
      * so set some nonempty string
      */
     wxTextDataObject* obj = new wxTextDataObject;
@@ -1271,7 +1274,7 @@ void ObjectList::OnDrop(wxDataViewEvent &event)
 // It looks like a fixed in current version of the wxWidgets
 // #ifdef __WXGTK__
 //     /* Under GTK, DnD moves an item between another two items.
-//     * And event.GetItem() return item, which is under "insertion line"Some text
+//     * And event.GetItem() return item, which is under "insertion line"
 //     * So, if we move item down we should to decrease the to_volume_id value
 //     **/
 //     if (to_volume_id > from_volume_id) to_volume_id--;
@@ -1841,7 +1844,7 @@ void ObjectList::append_menu_item_export_stl(wxMenu* menu) const
 void ObjectList::append_menu_item_reload_from_disk(wxMenu* menu) const
 {
     append_menu_item(menu, wxID_ANY, _(L("Reload from disk")), _(L("Reload the selected volumes from disk")),
-        [this](wxCommandEvent&) { wxGetApp().plater()->reload_from_disk(); }, "", menu,
+        [](wxCommandEvent&) { wxGetApp().plater()->reload_from_disk(); }, "", menu,
         []() { return wxGetApp().plater()->can_reload_from_disk(); }, wxGetApp().plater());
 }
 
@@ -1903,56 +1906,59 @@ void ObjectList::append_menu_item_scale_selection_to_fit_print_volume(wxMenu* me
         [](wxCommandEvent&) { wxGetApp().plater()->scale_selection_to_fit_print_volume(); }, "", menu);
 }
 
-void ObjectList::append_menu_item_convert_unit(wxMenu* menu, int insert_pos/* = 1*/)
+void ObjectList::append_menu_items_convert_unit(wxMenu* menu, int insert_pos/* = 1*/)
 {
     std::vector<int> obj_idxs, vol_idxs;
     get_selection_indexes(obj_idxs, vol_idxs);
     if (obj_idxs.empty() && vol_idxs.empty())
         return;
 
-    auto can_append = [this, obj_idxs, vol_idxs](bool from_imperial_unit) {
+    auto volume_respects_conversion = [](ModelVolume* volume, ConversionType conver_type)
+    {
+        return  (conver_type == ConversionType::CONV_FROM_INCH  &&  volume->source.is_converted_from_inches) ||
+                (conver_type == ConversionType::CONV_TO_INCH    && !volume->source.is_converted_from_inches) ||
+                (conver_type == ConversionType::CONV_FROM_METER &&  volume->source.is_converted_from_meters) ||
+                (conver_type == ConversionType::CONV_TO_METER   && !volume->source.is_converted_from_meters);
+    };
+
+    auto can_append = [this, obj_idxs, vol_idxs, volume_respects_conversion](ConversionType conver_type)
+    {
         ModelObjectPtrs objects;
         for (int obj_idx : obj_idxs) {
             ModelObject* object = (*m_objects)[obj_idx];
             if (vol_idxs.empty()) {
                 for (ModelVolume* volume : object->volumes)
-                    if (volume->source.is_converted_from_inches == from_imperial_unit)
+                    if (volume_respects_conversion(volume, conver_type))
                         return false;
             }
             else {
                 for (int vol_idx : vol_idxs)
-                    if (object->volumes[vol_idx]->source.is_converted_from_inches == from_imperial_unit)
+                    if (volume_respects_conversion(object->volumes[vol_idx], conver_type))
                         return false;
             }
         }
         return true;
     };
 
-    wxString convert_menu_name = _L("Convert from imperial units");
-    int      convert_menu_id   = menu->FindItem(convert_menu_name);
-    wxString revert_menu_name  = _L("Revert conversion from imperial units");
-    int      revert_menu_id    = menu->FindItem(revert_menu_name);
+    std::vector<std::pair<ConversionType, wxString>> items = {
+        {ConversionType::CONV_FROM_INCH , _L("Convert from imperial units") },
+        {ConversionType::CONV_TO_INCH   , _L("Revert conversion from imperial units") },
+        {ConversionType::CONV_FROM_METER, _L("Convert from meters") },
+        {ConversionType::CONV_TO_METER  , _L("Revert conversion from meters") } };
 
-    if (can_append(true)) {
-        // Delete revert menu item
-        if (revert_menu_id != wxNOT_FOUND)
-            menu->Destroy(revert_menu_id);
-        // Add convert menu item if it doesn't exist
-        if (convert_menu_id == wxNOT_FOUND)
-            append_menu_item(menu, wxID_ANY, convert_menu_name, convert_menu_name,
-                [](wxCommandEvent&) { wxGetApp().plater()->convert_unit(true); }, "", menu, 
-                []() {return true;}, nullptr, insert_pos);
-    }
-
-    if (can_append(false)) {
-        // Delete convert menu item
-        if (convert_menu_id != wxNOT_FOUND)
-            menu->Destroy(convert_menu_id);
-        // Add convert menu item if it doesn't exist
-        if (revert_menu_id == wxNOT_FOUND)
-            append_menu_item(menu, wxID_ANY, revert_menu_name, revert_menu_name,
-                [](wxCommandEvent&) { wxGetApp().plater()->convert_unit(false); }, "", menu,
-                []() {return true;}, nullptr, insert_pos);
+    for (auto item : items) {
+        int menu_id = menu->FindItem(item.second);
+        if (can_append(item.first)) {
+            // Add menu item if it doesn't exist
+            if (menu_id == wxNOT_FOUND)
+                append_menu_item(menu, wxID_ANY, item.second, item.second,
+                    [item](wxCommandEvent&) { wxGetApp().plater()->convert_unit(item.first); }, "", menu,
+                    []() {return true; }, nullptr, insert_pos);
+        }
+        else if (menu_id != wxNOT_FOUND) {
+            // Delete menu item
+            menu->Destroy(menu_id);
+        }
     }
 }
 
@@ -2062,9 +2068,9 @@ wxMenu* ObjectList::create_settings_popupmenu(wxMenu *parent_menu)
 
     for (auto cat : settings_menu) {
         append_menu_item(menu, wxID_ANY, _(cat.first), "",
-                        [menu, this](wxCommandEvent& event) { get_settings_choice(menu->GetLabel(event.GetId())); }, 
+                        [this, menu](wxCommandEvent& event) { get_settings_choice(menu->GetLabel(event.GetId())); },
                         CATEGORY_ICON.find(cat.first) == CATEGORY_ICON.end() ? wxNullBitmap : CATEGORY_ICON.at(cat.first), parent_menu,
-                        [this]() { return true; }, wxGetApp().plater());
+                        []() { return true; }, wxGetApp().plater());
     }
 
     return menu;
@@ -2083,9 +2089,9 @@ void ObjectList::create_freq_settings_popupmenu(wxMenu *menu, const bool is_obje
             continue;
 
         append_menu_item(menu, wxID_ANY, _(it.first), "",
-                        [menu, this](wxCommandEvent& event) { get_freq_settings_choice(menu->GetLabel(event.GetId())); }, 
+                        [this, menu](wxCommandEvent& event) { get_freq_settings_choice(menu->GetLabel(event.GetId())); },
                         CATEGORY_ICON.find(it.first) == CATEGORY_ICON.end() ? wxNullBitmap : CATEGORY_ICON.at(it.first), menu,
-                        [this]() { return true; }, wxGetApp().plater());
+                        []() { return true; }, wxGetApp().plater());
     }
 #if 0
     // Add "Quick" settings bundles
@@ -4599,11 +4605,11 @@ void ObjectList::show_multi_selection_menu()
         append_menu_item_change_extruder(menu);
 
     append_menu_item(menu, wxID_ANY, _(L("Reload from disk")), _(L("Reload the selected volumes from disk")),
-        [this](wxCommandEvent&) { wxGetApp().plater()->reload_from_disk(); }, "", menu, []() {
+        [](wxCommandEvent&) { wxGetApp().plater()->reload_from_disk(); }, "", menu, []() {
         return wxGetApp().plater()->can_reload_from_disk();
     }, wxGetApp().plater());
 
-    append_menu_item_convert_unit(menu);
+    append_menu_items_convert_unit(menu);
     if (can_merge_to_multipart_object())
         append_menu_item_merge_to_multipart_object(menu);
 
