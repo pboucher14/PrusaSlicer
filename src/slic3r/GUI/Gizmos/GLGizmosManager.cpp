@@ -7,6 +7,7 @@
 #include "slic3r/GUI/GUI_ObjectManipulation.hpp"
 #include "slic3r/GUI/Plater.hpp"
 #include "slic3r/Utils/UndoRedo.hpp"
+#include "slic3r/GUI/NotificationManager.hpp"
 
 #include "slic3r/GUI/Gizmos/GLGizmoMove.hpp"
 #include "slic3r/GUI/Gizmos/GLGizmoScale.hpp"
@@ -162,6 +163,17 @@ void GLGizmosManager::reset_all_states()
     m_hover = Undefined;
 }
 
+bool GLGizmosManager::open_gizmo(EType type)
+{
+    int idx = int(type);
+    if (m_gizmos[idx]->is_selectable() && m_gizmos[idx]->is_activable()) {
+        activate_gizmo(m_current == idx ? Undefined : (EType)idx);
+        update_data();
+        return true;
+    }
+    return false;
+}
+
 void GLGizmosManager::set_hover_id(int id)
 {
     if (!m_enabled || m_current == Undefined)
@@ -265,24 +277,21 @@ bool GLGizmosManager::is_running() const
 
 bool GLGizmosManager::handle_shortcut(int key)
 {
-    if (!m_enabled)
+    if (!m_enabled || m_parent.get_selection().is_empty())
         return false;
 
-    if (m_parent.get_selection().is_empty())
+    auto it = std::find_if(m_gizmos.begin(), m_gizmos.end(),
+            [key](const std::unique_ptr<GLGizmoBase>& gizmo) {
+                int gizmo_key = gizmo->get_shortcut_key();
+                return gizmo->is_selectable()
+                       && ((gizmo_key == key - 64) || (gizmo_key == key - 96));
+    });
+
+    if (it == m_gizmos.end())
         return false;
 
-    bool handled = false;
-
-    for (size_t idx : get_selectable_idxs()) {
-        int it_key = m_gizmos[idx]->get_shortcut_key();
-
-        if (m_gizmos[idx]->is_activable() && ((it_key == key - 64) || (it_key == key - 96))) {
-                activate_gizmo(m_current == idx ? Undefined : (EType)idx);
-                handled = true;
-        }
-    }
-
-    return handled;
+    EType gizmo_type = EType(it - m_gizmos.begin());
+    return open_gizmo(gizmo_type);
 }
 
 bool GLGizmosManager::is_dragging() const
@@ -813,10 +822,7 @@ bool GLGizmosManager::on_char(wxKeyEvent& evt)
     if (!processed && !evt.HasModifiers())
     {
         if (handle_shortcut(keyCode))
-        {
-            update_data();
             processed = true;
-        }
     }
 
     if (processed)
@@ -1137,6 +1143,28 @@ bool GLGizmosManager::grabber_contains_mouse() const
 
     GLGizmoBase* curr = get_current();
     return (curr != nullptr) ? (curr->get_hover_id() != -1) : false;
+}
+
+
+bool GLGizmosManager::is_in_editing_mode(bool error_notification) const
+{
+    if (m_current != SlaSupports || ! dynamic_cast<GLGizmoSlaSupports*>(get_current())->is_in_editing_mode())
+        return false;
+
+    if (error_notification)
+        wxGetApp().plater()->get_notification_manager()->push_notification(
+                    NotificationType::QuitSLAManualMode,
+                    NotificationManager::NotificationLevel::ErrorNotification,
+                    _u8L("You are currently editing SLA support points. Please, "
+                         "apply or discard your changes first."));
+
+    return true;
+}
+
+
+int GLGizmosManager::get_shortcut_key(GLGizmosManager::EType type) const
+{
+    return m_gizmos[type]->get_shortcut_key();
 }
 
 } // namespace GUI

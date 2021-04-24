@@ -245,8 +245,7 @@ Polygon convex_hull(Points points)
     return hull;
 }
 
-Pointf3s
-convex_hull(Pointf3s points)
+Pointf3s convex_hull(Pointf3s points)
 {
     assert(points.size() >= 3);
     // sort input points
@@ -304,8 +303,7 @@ convex_hull(Pointf3s points)
     return hull;
 }
 
-Polygon
-convex_hull(const Polygons &polygons)
+Polygon convex_hull(const Polygons &polygons)
 {
     Points pp;
     for (Polygons::const_iterator p = polygons.begin(); p != polygons.end(); ++p) {
@@ -1089,11 +1087,13 @@ bool
 MedialAxis::validate_edge(const VD::edge_type* edge)
 {
     // prevent overflows and detect almost-infinite edges
+#ifndef CLIPPERLIB_INT32
     if (std::abs(edge->vertex0()->x()) > double(CLIPPER_MAX_COORD_UNSCALED) || 
         std::abs(edge->vertex0()->y()) > double(CLIPPER_MAX_COORD_UNSCALED) || 
         std::abs(edge->vertex1()->x()) > double(CLIPPER_MAX_COORD_UNSCALED) ||
         std::abs(edge->vertex1()->y()) > double(CLIPPER_MAX_COORD_UNSCALED))
         return false;
+#endif // CLIPPERLIB_INT32
 
     // construct the line representing this edge of the Voronoi diagram
     const Line line(

@@ -244,10 +244,11 @@ private:
 
             // credits infornation
             credits =   title + " " +
-                        _L("is based on Slic3r by Alessandro Ranellucci and the RepRap community.") + "\n\n" +
+                        _L("is based on Slic3r by Alessandro Ranellucci and the RepRap community.") + "\n" +
+                        _L("Developed by Prusa Research.")+ "\n\n" +
                         title + " " + _L("is licensed under the") + " " + _L("GNU Affero General Public License, version 3") + "\n\n" +
                         _L("Contributions by Vojtech Bubnik, Enrico Turri, Oleksandra Iushchenko, Tamas Meszaros, Lukas Matena, Vojtech Kral, David Kocik and numerous others.") + "\n\n" +
-                        _L("Artwork model by Nora Al-Badri and Jan Nikolai Nelles");
+                        _L("Artwork model by M Boyer");
 
             title_font = version_font = credits_font = init_font;
         }
@@ -690,8 +691,8 @@ bool GUI_App::init_opengl()
 void GUI_App::init_app_config()
 {
 	// Profiles for the alpha are stored into the PrusaSlicer-alpha directory to not mix with the current release.
-    SetAppName(SLIC3R_APP_KEY);
-//	SetAppName(SLIC3R_APP_KEY "-beta");
+//    SetAppName(SLIC3R_APP_KEY);
+	SetAppName(SLIC3R_APP_KEY "-alpha");
 //	SetAppDisplayName(SLIC3R_APP_NAME);
 
 	// Set the Slic3r data directory at the Slic3r XS module.
@@ -835,14 +836,10 @@ bool GUI_App::on_init_inner()
 
     if (is_editor()) {
 #ifdef __WXMSW__ 
-#if ENABLE_CUSTOMIZABLE_FILES_ASSOCIATION_ON_WIN
         if (app_config->get("associate_3mf") == "1")
-#endif // ENABLE_CUSTOMIZABLE_FILES_ASSOCIATION_ON_WIN
             associate_3mf_files();
-#if ENABLE_CUSTOMIZABLE_FILES_ASSOCIATION_ON_WIN
         if (app_config->get("associate_stl") == "1")
             associate_stl_files();
-#endif // ENABLE_CUSTOMIZABLE_FILES_ASSOCIATION_ON_WIN
 #endif // __WXMSW__
 
         preset_updater = new PresetUpdater();
@@ -858,9 +855,7 @@ bool GUI_App::on_init_inner()
     }
     else {
 #ifdef __WXMSW__ 
-#if ENABLE_CUSTOMIZABLE_FILES_ASSOCIATION_ON_WIN
         if (app_config->get("associate_gcode") == "1")
-#endif // ENABLE_CUSTOMIZABLE_FILES_ASSOCIATION_ON_WIN
             associate_gcode_files();
 #endif // __WXMSW__
     }
@@ -1716,9 +1711,12 @@ void GUI_App::add_config_menu(wxMenuBar *menu)
                 PreferencesDialog dlg(mainframe);
                 dlg.ShowModal();
                 app_layout_changed = dlg.settings_layout_changed();
+#if ENABLE_GCODE_LINES_ID_IN_H_SLIDER
+                if (dlg.seq_top_layer_only_changed() || dlg.seq_seq_top_gcode_indices_changed())
+#else
                 if (dlg.seq_top_layer_only_changed())
+#endif // ENABLE_GCODE_LINES_ID_IN_H_SLIDER
                     this->plater_->refresh_print();
-#if ENABLE_CUSTOMIZABLE_FILES_ASSOCIATION_ON_WIN
 #ifdef _WIN32
                 if (is_editor()) {
                     if (app_config->get("associate_3mf") == "1")
@@ -1731,7 +1729,6 @@ void GUI_App::add_config_menu(wxMenuBar *menu)
                         associate_gcode_files();
                 }
 #endif // _WIN32
-#endif // ENABLE_CUSTOMIZABLE_FILES_ASSOCIATION_ON_WIN
             }
             if (app_layout_changed) {
                 // hide full main_sizer for mainFrame
@@ -1929,15 +1926,11 @@ void GUI_App::MacOpenFiles(const wxArrayString &fileNames)
             start_new_slicer(non_gcode_files, true);
     } else {
         if (! files.empty()) {
-#if ENABLE_DRAG_AND_DROP_FIX
             wxArrayString input_files;
             for (size_t i = 0; i < non_gcode_files.size(); ++i) {
                 input_files.push_back(non_gcode_files[i]);
             }
             this->plater()->load_files(input_files);
-#else
-            this->plater()->load_files(files, true, true);
-#endif     
         }
         for (const wxString &filename : gcode_files)
             start_new_gcodeviewer(&filename);
@@ -1984,6 +1977,11 @@ Model& GUI_App::model()
 wxNotebook* GUI_App::tab_panel() const
 {
     return mainframe->m_tabpanel;
+}
+
+NotificationManager* GUI_App::notification_manager() 
+{
+    return plater_->get_notification_manager();
 }
 
 // extruders count from selected printer preset
@@ -2303,7 +2301,6 @@ void GUI_App::associate_3mf_files()
         ::SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
 }
 
-#if ENABLE_CUSTOMIZABLE_FILES_ASSOCIATION_ON_WIN
 void GUI_App::associate_stl_files()
 {
     wchar_t app_path[MAX_PATH];
@@ -2327,7 +2324,6 @@ void GUI_App::associate_stl_files()
         // notify Windows only when any of the values gets changed
         ::SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
 }
-#endif // ENABLE_CUSTOMIZABLE_FILES_ASSOCIATION_ON_WIN
 
 void GUI_App::associate_gcode_files()
 {

@@ -283,8 +283,10 @@ static size_t avoid_perimeters_inner(const AvoidCrossingPerimeters::Boundary &bo
         AllIntersectionsVisitor visitor(edge_grid, intersections, Line(start, end));
         edge_grid.visit_cells_intersecting_line(start, end, visitor);
         Vec2d dir = (end - start).cast<double>();
-        for (Intersection &intersection : intersections)
-            intersection.distance = boundary.boundaries_params[intersection.border_idx][intersection.line_idx];
+        for (Intersection &intersection : intersections) {
+            float dist_from_line_begin = (intersection.point - boundary.boundaries[intersection.border_idx][intersection.line_idx]).cast<float>().norm();
+            intersection.distance = boundary.boundaries_params[intersection.border_idx][intersection.line_idx] + dist_from_line_begin;
+        }
         std::sort(intersections.begin(), intersections.end(), [dir](const auto &l, const auto &r) { return (r.point - l.point).template cast<double>().dot(dir) > 0.; });
     }
 
@@ -568,7 +570,7 @@ static void precompute_polygon_distances(const Polygon &polygon, std::vector<flo
     polygon_distances_out.assign(polygon.size() + 1, 0.f);
     for (size_t point_idx = 1; point_idx < polygon.size(); ++point_idx)
         polygon_distances_out[point_idx] = polygon_distances_out[point_idx - 1] + (polygon[point_idx].cast<float>() - polygon[point_idx - 1].cast<float>()).norm();
-    polygon_distances_out.back() = polygon_distances_out[polygon.size() - 1] + (polygon.last_point().cast<float>() - polygon.first_point().cast<float>()).norm();
+    polygon_distances_out.back() = polygon_distances_out[polygon.size() - 1] + (polygon.points.back().cast<float>() - polygon.points.front().cast<float>()).norm();
 }
 
 static void precompute_expolygon_distances(const ExPolygon &ex_polygon, std::vector<std::vector<float>> &expolygon_distances_out)
@@ -729,10 +731,11 @@ static std::vector<float> contour_distance(const EdgeGrid::Grid     &grid,
 
 // Polygon offset which ensures that if a polygon breaks up into several separate parts, the original polygon will be used in these places.
 // ExPolygons are handled one by one so returned ExPolygons could intersect.
-static ExPolygons inner_offset(const ExPolygons &ex_polygons, double offset, double min_contour_width = scale_(0.001))
+static ExPolygons inner_offset(const ExPolygons &ex_polygons, double offset)
 {
-    double     search_radius  = 2. * (offset + min_contour_width);
-    ExPolygons ex_poly_result = ex_polygons;
+    double     min_contour_width = 2. * offset + SCALED_EPSILON;
+    double     search_radius     = 2. * (offset + min_contour_width);
+    ExPolygons ex_poly_result    = ex_polygons;
     resample_expolygons(ex_poly_result, offset / 2);
 
     for (ExPolygon &ex_poly : ex_poly_result) {

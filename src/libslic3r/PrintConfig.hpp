@@ -24,7 +24,7 @@
 namespace Slic3r {
 
 enum GCodeFlavor : unsigned char {
-    gcfRepRapSprinter, gcfRepRapFirmware, gcfRepetier, gcfTeacup, gcfMakerWare, gcfMarlin, gcfSailfish, gcfMach3, gcfMachinekit,
+    gcfRepRapSprinter, gcfRepRapFirmware, gcfRepetier, gcfTeacup, gcfMakerWare, gcfMarlinLegacy, gcfMarlinFirmware, gcfSailfish, gcfMach3, gcfMachinekit,
     gcfSmoothie, gcfNoExtrusion,
 };
 
@@ -51,7 +51,7 @@ enum class FuzzySkinType {
 
 enum InfillPattern : int {
     ipRectilinear, ipMonotonic, ipAlignedRectilinear, ipGrid, ipTriangles, ipStars, ipCubic, ipLine, ipConcentric, ipHoneycomb, ip3DHoneycomb,
-    ipGyroid, ipHilbertCurve, ipArchimedeanChords, ipOctagramSpiral, ipAdaptiveCubic, ipSupportCubic, ipCount,
+    ipGyroid, ipHilbertCurve, ipArchimedeanChords, ipOctagramSpiral, ipAdaptiveCubic, ipSupportCubic, ipSupportBase, ipCount,
 };
 
 enum class IroningType {
@@ -63,6 +63,14 @@ enum class IroningType {
 
 enum SupportMaterialPattern {
     smpRectilinear, smpRectilinearGrid, smpHoneycomb,
+};
+
+enum SupportMaterialStyle {
+    smsGrid, smsSnug,
+};
+
+enum SupportMaterialInterfacePattern {
+    smipAuto, smipRectilinear, smipConcentric,
 };
 
 enum SeamPosition {
@@ -112,7 +120,8 @@ template<> inline const t_config_enum_values& ConfigOptionEnum<GCodeFlavor>::get
         keys_map["repetier"]        = gcfRepetier;
         keys_map["teacup"]          = gcfTeacup;
         keys_map["makerware"]       = gcfMakerWare;
-        keys_map["marlin"]          = gcfMarlin;
+        keys_map["marlin"]          = gcfMarlinLegacy;
+        keys_map["marlinfirmware"]  = gcfMarlinFirmware;
         keys_map["sailfish"]        = gcfSailfish;
         keys_map["smoothie"]        = gcfSmoothie;
         keys_map["mach3"]           = gcfMach3;
@@ -203,6 +212,25 @@ template<> inline const t_config_enum_values& ConfigOptionEnum<SupportMaterialPa
         keys_map["rectilinear"]         = smpRectilinear;
         keys_map["rectilinear-grid"]    = smpRectilinearGrid;
         keys_map["honeycomb"]           = smpHoneycomb;
+    }
+    return keys_map;
+}
+
+template<> inline const t_config_enum_values& ConfigOptionEnum<SupportMaterialStyle>::get_enum_values() {
+    static t_config_enum_values keys_map;
+    if (keys_map.empty()) {
+        keys_map["grid"]    = smsGrid;
+        keys_map["snug"]    = smsSnug;
+    }
+    return keys_map;
+}
+
+template<> inline const t_config_enum_values& ConfigOptionEnum<SupportMaterialInterfacePattern>::get_enum_values() {
+    static t_config_enum_values keys_map;
+    if (keys_map.empty()) {
+        keys_map["auto"]                = smipAuto;
+        keys_map["rectilinear"]         = smipRectilinear;
+        keys_map["concentric"]          = smipConcentric;
     }
     return keys_map;
 }
@@ -468,11 +496,14 @@ public:
     ConfigOptionBool                dont_support_bridges;
     ConfigOptionFloat               elefant_foot_compensation;
     ConfigOptionFloatOrPercent      extrusion_width;
-    ConfigOptionFloatOrPercent      first_layer_height;
     ConfigOptionBool                infill_only_where_needed;
     // Force the generation of solid shells between adjacent materials/volumes.
     ConfigOptionBool                interface_shells;
     ConfigOptionFloat               layer_height;
+    ConfigOptionFloat               raft_contact_distance;
+    ConfigOptionFloat               raft_expansion;
+    ConfigOptionPercent             raft_first_layer_density;
+    ConfigOptionFloat               raft_first_layer_expansion;
     ConfigOptionInt                 raft_layers;
     ConfigOptionEnum<SeamPosition>  seam_position;
 //    ConfigOptionFloat               seam_preferred_direction;
@@ -485,24 +516,31 @@ public:
     ConfigOptionFloat               support_material_angle;
     ConfigOptionBool                support_material_buildplate_only;
     ConfigOptionFloat               support_material_contact_distance;
+    ConfigOptionFloat               support_material_bottom_contact_distance;
     ConfigOptionInt                 support_material_enforce_layers;
     ConfigOptionInt                 support_material_extruder;
     ConfigOptionFloatOrPercent      support_material_extrusion_width;
     ConfigOptionBool                support_material_interface_contact_loops;
     ConfigOptionInt                 support_material_interface_extruder;
     ConfigOptionInt                 support_material_interface_layers;
+    ConfigOptionInt                 support_material_bottom_interface_layers;
     // Spacing between interface lines (the hatching distance). Set zero to get a solid interface.
     ConfigOptionFloat               support_material_interface_spacing;
     ConfigOptionFloatOrPercent      support_material_interface_speed;
     ConfigOptionEnum<SupportMaterialPattern> support_material_pattern;
+    ConfigOptionEnum<SupportMaterialInterfacePattern> support_material_interface_pattern;
+    // Morphological closing of support areas. Only used for "sung" supports.
+    ConfigOptionFloat               support_material_closing_radius;
     // Spacing between support material lines (the hatching distance).
     ConfigOptionFloat               support_material_spacing;
     ConfigOptionFloat               support_material_speed;
+    ConfigOptionEnum<SupportMaterialStyle> support_material_style;
     ConfigOptionBool                support_material_synchronize_layers;
     // Overhang angle threshold.
     ConfigOptionInt                 support_material_threshold;
     ConfigOptionBool                support_material_with_sheath;
     ConfigOptionFloatOrPercent      support_material_xy_spacing;
+    ConfigOptionBool                thick_bridges;
     ConfigOptionFloat               xy_size_compensation;
     ConfigOptionBool                wipe_into_objects;
 
@@ -516,10 +554,13 @@ protected:
         OPT_PTR(dont_support_bridges);
         OPT_PTR(elefant_foot_compensation);
         OPT_PTR(extrusion_width);
-        OPT_PTR(first_layer_height);
         OPT_PTR(infill_only_where_needed);
         OPT_PTR(interface_shells);
         OPT_PTR(layer_height);
+        OPT_PTR(raft_contact_distance);
+        OPT_PTR(raft_expansion);
+        OPT_PTR(raft_first_layer_density);
+        OPT_PTR(raft_first_layer_expansion);
         OPT_PTR(raft_layers);
         OPT_PTR(seam_position);
         OPT_PTR(slice_closing_radius);
@@ -530,21 +571,27 @@ protected:
         OPT_PTR(support_material_angle);
         OPT_PTR(support_material_buildplate_only);
         OPT_PTR(support_material_contact_distance);
+        OPT_PTR(support_material_bottom_contact_distance);
         OPT_PTR(support_material_enforce_layers);
         OPT_PTR(support_material_interface_contact_loops);
         OPT_PTR(support_material_extruder);
         OPT_PTR(support_material_extrusion_width);
         OPT_PTR(support_material_interface_extruder);
         OPT_PTR(support_material_interface_layers);
+        OPT_PTR(support_material_bottom_interface_layers);
+        OPT_PTR(support_material_closing_radius);
         OPT_PTR(support_material_interface_spacing);
         OPT_PTR(support_material_interface_speed);
         OPT_PTR(support_material_pattern);
+        OPT_PTR(support_material_interface_pattern);
         OPT_PTR(support_material_spacing);
         OPT_PTR(support_material_speed);
+        OPT_PTR(support_material_style);
         OPT_PTR(support_material_synchronize_layers);
         OPT_PTR(support_material_xy_spacing);
         OPT_PTR(support_material_threshold);
         OPT_PTR(support_material_with_sheath);
+        OPT_PTR(thick_bridges);
         OPT_PTR(xy_size_compensation);
         OPT_PTR(wipe_into_objects);
     }
@@ -680,10 +727,12 @@ public:
     ConfigOptionFloats              machine_max_feedrate_y;
     ConfigOptionFloats              machine_max_feedrate_z;
     ConfigOptionFloats              machine_max_feedrate_e;
-    // M204 S... [mm/sec^2]
+
+    // M204 P... R... T...[mm/sec^2]
     ConfigOptionFloats              machine_max_acceleration_extruding;
-    // M204 T... [mm/sec^2]
     ConfigOptionFloats              machine_max_acceleration_retracting;
+    ConfigOptionFloats              machine_max_acceleration_travel;
+
     // M205 X... Y... Z... E... [mm/sec]
     ConfigOptionFloats              machine_max_jerk_x;
     ConfigOptionFloats              machine_max_jerk_y;
@@ -708,6 +757,7 @@ protected:
         OPT_PTR(machine_max_feedrate_e);
         OPT_PTR(machine_max_acceleration_extruding);
         OPT_PTR(machine_max_acceleration_retracting);
+        OPT_PTR(machine_max_acceleration_travel);
         OPT_PTR(machine_max_jerk_x);
         OPT_PTR(machine_max_jerk_y);
         OPT_PTR(machine_max_jerk_z);
@@ -898,6 +948,7 @@ public:
     ConfigOptionFloat               first_layer_acceleration;
     ConfigOptionInts                first_layer_bed_temperature;
     ConfigOptionFloatOrPercent      first_layer_extrusion_width;
+    ConfigOptionFloatOrPercent      first_layer_height;
     ConfigOptionFloatOrPercent      first_layer_speed;
     ConfigOptionInts                first_layer_temperature;
     ConfigOptionInts                full_fan_speed_layer;
@@ -938,6 +989,7 @@ public:
     ConfigOptionFloat               wipe_tower_width;
     ConfigOptionFloat               wipe_tower_per_color_wipe;
     ConfigOptionFloat               wipe_tower_rotation_angle;
+    ConfigOptionFloat               wipe_tower_brim_width;
     ConfigOptionFloat               wipe_tower_bridging;
     ConfigOptionFloats              wiping_volumes_matrix;
     ConfigOptionFloats              wiping_volumes_extruders;
@@ -972,6 +1024,7 @@ protected:
         OPT_PTR(first_layer_acceleration);
         OPT_PTR(first_layer_bed_temperature);
         OPT_PTR(first_layer_extrusion_width);
+        OPT_PTR(first_layer_height);
         OPT_PTR(first_layer_speed);
         OPT_PTR(first_layer_temperature);
         OPT_PTR(full_fan_speed_layer);
@@ -1012,6 +1065,7 @@ protected:
         OPT_PTR(wipe_tower_width);
         OPT_PTR(wipe_tower_per_color_wipe);
         OPT_PTR(wipe_tower_rotation_angle);
+        OPT_PTR(wipe_tower_brim_width);
         OPT_PTR(wipe_tower_bridging);
         OPT_PTR(wiping_volumes_matrix);
         OPT_PTR(wiping_volumes_extruders);
@@ -1086,7 +1140,7 @@ public:
     // The percentage of smaller pillars compared to the normal pillar diameter
     // which are used in problematic areas where a normal pilla cannot fit.
     ConfigOptionPercent support_small_pillar_diameter_percent;
-    
+
     // How much bridge (supporting another pinhead) can be placed on a pillar.
     ConfigOptionInt   support_max_bridges_on_pillar;
 
@@ -1138,7 +1192,7 @@ public:
 
     // The height of the pad from the bottom to the top not considering the pit
     ConfigOptionFloat pad_wall_height /*= 5*/;
-    
+
     // How far should the pad extend around the contained geometry
     ConfigOptionFloat pad_brim_size;
 
@@ -1162,7 +1216,7 @@ public:
 
     // Disable the elevation (ignore its value) and use the zero elevation mode
     ConfigOptionBool pad_around_object;
-    
+
     ConfigOptionBool pad_around_object_everywhere;
 
     // This is the gap between the object bottom and the generated pad
@@ -1176,7 +1230,7 @@ public:
 
     // How much should the tiny connectors penetrate into the model body
     ConfigOptionFloat pad_object_connector_penetration;
-    
+
     // /////////////////////////////////////////////////////////////////////////
     // Model hollowing parameters:
     //   - Models can be hollowed out as part of the SLA print process
@@ -1185,17 +1239,17 @@ public:
     //   - Additional holes will be drilled into the hollow model to allow for
     //   - resin removal.
     // /////////////////////////////////////////////////////////////////////////
-    
+
     ConfigOptionBool hollowing_enable;
-    
-    // The minimum thickness of the model walls to maintain. Note that the 
+
+    // The minimum thickness of the model walls to maintain. Note that the
     // resulting walls may be thicker due to smoothing out fine cavities where
     // resin could stuck.
     ConfigOptionFloat hollowing_min_thickness;
-    
+
     // Indirectly controls the voxel size (resolution) used by openvdb
     ConfigOptionFloat hollowing_quality;
-   
+
     // Indirectly controls the minimum size of created cavities.
     ConfigOptionFloat hollowing_closing_distance;
 
@@ -1417,13 +1471,13 @@ Points get_bed_shape(const SLAPrinterConfig &cfg);
 // ModelConfig is a wrapper around DynamicPrintConfig with an addition of a timestamp.
 // Each change of ModelConfig is tracked by assigning a new timestamp from a global counter.
 // The counter is used for faster synchronization of the background slicing thread
-// with the front end by skipping synchronization of equal config dictionaries. 
-// The global counter is also used for avoiding unnecessary serialization of config 
+// with the front end by skipping synchronization of equal config dictionaries.
+// The global counter is also used for avoiding unnecessary serialization of config
 // dictionaries when taking an Undo snapshot.
 //
 // The global counter is NOT thread safe, therefore it is recommended to use ModelConfig from
 // the main thread only.
-// 
+//
 // As there is a global counter and it is being increased with each change to any ModelConfig,
 // if two ModelConfig dictionaries differ, they should differ with their timestamp as well.
 // Therefore copying the ModelConfig including its timestamp is safe as there is no harm

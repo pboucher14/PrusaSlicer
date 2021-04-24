@@ -9,6 +9,8 @@
 #include "libslic3r/Print.hpp"
 #include "libslic3r/AppConfig.hpp"
 #include "GUI_Utils.hpp"
+#include "MsgDialog.hpp"
+#include "Tab.hpp"
 
 #include <wx/button.h>
 #include <wx/dialog.h>
@@ -324,6 +326,20 @@ double Control::get_double_value(const SelectedSlider& selection)
     return m_values[selection == ssLower ? m_lower_value : m_higher_value];
 }
 
+int Control::get_tick_from_value(double value)
+{
+    std::vector<double>::iterator it;
+    if (m_is_wipe_tower)
+        it = std::find_if(m_values.begin(), m_values.end(),
+                          [value](const double & val) { return fabs(value - val) <= epsilon(); });
+    else
+        it = std::lower_bound(m_values.begin(), m_values.end(), value - epsilon());
+
+    if (it == m_values.end())
+        return -1;
+    return int(it - m_values.begin());
+}
+
 Info Control::GetTicksValues() const
 {
     Info custom_gcode_per_print_z;
@@ -355,12 +371,9 @@ void Control::SetTicksValues(const Info& custom_gcode_per_print_z)
     m_ticks.ticks.clear();
     const std::vector<CustomGCode::Item>& heights = custom_gcode_per_print_z.gcodes;
     for (auto h : heights) {
-        auto it = std::lower_bound(m_values.begin(), m_values.end(), h.print_z - epsilon());
-
-        if (it == m_values.end())
-            continue;
-
-        m_ticks.ticks.emplace(TickCode{int(it-m_values.begin()), h.type, h.extruder, h.color, h.extra});
+        int tick = get_tick_from_value(h.print_z);
+        if (tick >=0)
+            m_ticks.ticks.emplace(TickCode{ tick, h.type, h.extruder, h.color, h.extra });
     }
     
     if (!was_empty && m_ticks.empty())
@@ -374,7 +387,7 @@ void Control::SetTicksValues(const Info& custom_gcode_per_print_z)
     Update();
 }
 
-void Control::SetLayersTimes(const std::vector<float>& layers_times)
+void Control::SetLayersTimes(const std::vector<float>& layers_times, float total_time)
 { 
     m_layers_times.clear();
     if (layers_times.empty())
@@ -383,10 +396,28 @@ void Control::SetLayersTimes(const std::vector<float>& layers_times)
     m_layers_times[0] = layers_times[0];
     for (size_t i = 1; i < layers_times.size(); i++)
         m_layers_times[i] = m_layers_times[i - 1] + layers_times[i];
+
+    // Erase duplicates values from m_values and save it to the m_layers_values
+    // They will be used for show the correct estimated time for MM print, when "No sparce layer" is enabled
+    // See https://github.com/prusa3d/PrusaSlicer/issues/6232
+    if (m_is_wipe_tower && m_values.size() != m_layers_times.size()) {
+        m_layers_values = m_values;
+        sort(m_layers_values.begin(), m_layers_values.end());
+        m_layers_values.erase(unique(m_layers_values.begin(), m_layers_values.end()), m_layers_values.end());
+
+        // When whipe tower is used to the end of print, there is one layer which is not marked in layers_times
+        // So, add this value from the total print time value
+        if (m_layers_values.size() != m_layers_times.size())
+            for (size_t i = m_layers_times.size(); i < m_layers_values.size(); i++)
+                m_layers_times.push_back(total_time);
+        Refresh();
+        Update();
+    }
 }
 
 void Control::SetLayersTimes(const std::vector<double>& layers_times)
 { 
+    m_is_wipe_tower = false;
     m_layers_times = layers_times;
     for (size_t i = 1; i < m_layers_times.size(); i++)
         m_layers_times[i] += m_layers_times[i - 1];
@@ -409,11 +440,29 @@ void Control::SetModeAndOnlyExtruder(const bool is_one_extruder_printed_model, c
     m_only_extruder = only_extruder;
 
     UseDefaultColors(m_mode == SingleExtruder);
+
+    m_is_wipe_tower = m_mode != SingleExtruder;
 }
 
 void Control::SetExtruderColors( const std::vector<std::string>& extruder_colors)
 {
     m_extruder_colors = extruder_colors;
+}
+
+bool Control::IsNewPrint()
+{
+    if (GUI::wxGetApp().plater()->printer_technology() == ptSLA)
+        return false;
+    const Print& print = GUI::wxGetApp().plater()->fff_print();
+    std::string idxs;
+    for (auto object : print.objects())
+        idxs += std::to_string(object->id().id) + "_";
+
+    if (idxs == m_print_obj_idxs)
+        return false;
+
+    m_print_obj_idxs = idxs;
+    return true;
 }
 
 void Control::get_lower_and_higher_position(int& lower_pos, int& higher_pos)
@@ -487,6 +536,18 @@ void Control::render()
     }
 }
 
+bool Control::is_wipe_tower_layer(int tick) const
+{
+    if (!m_is_wipe_tower || tick >= (int)m_values.size())
+        return false;
+    if (tick == 0 || (tick == (int)m_values.size() - 1 && m_values[tick] > m_values[tick - 1]))
+        return false;
+    if (m_values[tick - 1] == m_values[tick + 1] && m_values[tick] < m_values[tick + 1])
+        return true;
+
+    return false;
+}
+
 void Control::draw_action_icon(wxDC& dc, const wxPoint pt_beg, const wxPoint pt_end)
 {
     const int tick = m_selection == ssLower ? m_lower_value : m_higher_value;
@@ -497,6 +558,11 @@ void Control::draw_action_icon(wxDC& dc, const wxPoint pt_beg, const wxPoint pt_
     // suppress add tick on first layer
     if (tick == 0)
         return;
+
+    if (is_wipe_tower_layer(tick)) {
+        m_rect_tick_action = wxRect();
+        return;
+    }
 
     wxBitmap* icon = m_focus == fiActionIcon ? &m_bmp_add_tick_off.bmp() : &m_bmp_add_tick_on.bmp();
     if (m_ticks.ticks.find(TickCode{tick}) != m_ticks.ticks.end())
@@ -596,7 +662,7 @@ void Control::draw_tick_on_mouse_position(wxDC& dc)
     }
 }
 
-static std::string short_and_splitted_time(const std::string& time)
+static wxString short_and_splitted_time(const std::string& time)
 {
     // Parse the dhms time format.
     int days = 0;
@@ -634,7 +700,7 @@ static std::string short_and_splitted_time(const std::string& time)
     }
     else
         ::sprintf(buffer, "%ds", seconds);
-    return buffer;
+    return wxString::FromUTF8(buffer);
 }
 
 wxString Control::get_label(int tick, LabelType label_type/* = ltHeightWithLayer*/) const
@@ -646,19 +712,54 @@ wxString Control::get_label(int tick, LabelType label_type/* = ltHeightWithLayer
     if (value >= m_values.size())
         return "ErrVal";
 
+    // When "Print Settings -> Multiple Extruders -> No sparse layer" is enabled, then "Smart" Wipe Tower is used for wiping.
+    // As a result, each layer with tool changes is splited for min 3 parts: first tool, wiping, second tool ...
+    // So, vertical slider have to respect to this case.
+    // see https://github.com/prusa3d/PrusaSlicer/issues/6232.
+    // m_values contains data for all layer's parts,
+    // but m_layers_values contains just unique Z values.
+    // Use this function for correct conversion slider position to number of printed layer
+    auto get_layer_number = [this](int value, LabelType label_type) {
+        if (label_type == ltEstimatedTime && m_layers_times.empty())
+            return size_t(-1);
+        double layer_print_z = m_values[is_wipe_tower_layer(value) ? std::max<int>(value - 1, 0) : value];
+        auto it = std::lower_bound(m_layers_values.begin(), m_layers_values.end(), layer_print_z - epsilon());
+        if (it == m_layers_values.end()) {
+            it = std::lower_bound(m_values.begin(), m_values.end(), layer_print_z - epsilon());
+            if (it == m_values.end())
+                return size_t(-1);
+            return size_t(value + 1);
+        }
+        return size_t(it - m_layers_values.begin()+1);
+    };
+
+#if ENABLE_GCODE_LINES_ID_IN_H_SLIDER
+    if (m_draw_mode == dmSequentialGCodeView) {
+        return (Slic3r::GUI::get_app_config()->get("seq_top_gcode_indices") == "1") ?
+            wxString::Format("%lu", static_cast<unsigned long>(m_alternate_values[value])) :
+            wxString::Format("%lu", static_cast<unsigned long>(m_values[value]));
+    }
+#else
     if (m_draw_mode == dmSequentialGCodeView)
         return wxString::Format("%lu", static_cast<unsigned long>(m_values[value]));
+#endif // ENABLE_GCODE_LINES_ID_IN_H_SLIDER
     else {
         if (label_type == ltEstimatedTime) {
-            return (value < m_layers_times.size()) ? short_and_splitted_time(get_time_dhms(m_layers_times[value])) : "";
+            if (m_is_wipe_tower) {
+                size_t layer_number = get_layer_number(value, label_type);
+                return layer_number == size_t(-1) ? "" : short_and_splitted_time(get_time_dhms(m_layers_times[layer_number]));
+            }
+            return value < m_layers_times.size() ? short_and_splitted_time(get_time_dhms(m_layers_times[value])) : "";
         }
         wxString str = m_values.empty() ?
             wxString::Format("%.*f", 2, m_label_koef * value) :
             wxString::Format("%.*f", 2, m_values[value]);
         if (label_type == ltHeight)
             return str;
-        if (label_type == ltHeightWithLayer)
-            return format_wxstr("%1%\n(%2%)", str, m_values.empty() ? value : value + 1);
+        if (label_type == ltHeightWithLayer) {
+            size_t layer_number = m_is_wipe_tower ? get_layer_number(value, label_type) : (m_values.empty() ? value : value + 1);
+            return format_wxstr("%1%\n(%2%)", str, layer_number);
+        }
     }
 
     return wxEmptyString;
@@ -693,10 +794,17 @@ void Control::draw_tick_text(wxDC& dc, const wxPoint& pos, int tick, LabelType l
             text_pos = wxPoint(std::max(2, pos.x - text_width - 1 - m_thumb_size.x), pos.y - 0.5 * text_height + 1);
     }
 
+    wxColour old_clr = dc.GetTextForeground();
+    const wxPen& pen = is_wipe_tower_layer(tick) && (tick == m_lower_value || tick == m_higher_value) ? DARK_ORANGE_PEN : wxPen(old_clr);
+    dc.SetPen(pen);
+    dc.SetTextForeground(pen.GetColour());
+
     if (label_type == ltEstimatedTime)
         dc.DrawLabel(label, wxRect(text_pos, wxSize(text_width, text_height)), wxALIGN_RIGHT);
     else
         dc.DrawText(label, text_pos);
+
+    dc.SetTextForeground(old_clr);
 }
 
 void Control::draw_thumb_text(wxDC& dc, const wxPoint& pos, const SelectedSlider& selection) const
@@ -1259,6 +1367,8 @@ wxString Control::get_tooltip(int tick/*=-1*/)
     if (m_focus == fiColorBand)
         return m_mode != SingleExtruder ? "" :
                _L("Edit current color - Right click the colored slider segment");
+    if (m_focus == fiSmartWipeTower)
+        return _L("This is wipe tower layer");
     if (m_draw_mode == dmSlaPrint)
         return ""; // no drawn ticks and no tooltips for them in SlaPrinting mode
 
@@ -1301,7 +1411,12 @@ wxString Control::get_tooltip(int tick/*=-1*/)
                         "This code won't be processed during G-code generation.");
         
         // Show custom Gcode as a first string of tooltop
-        tooltip = "    ";
+        std::string space = "   ";
+        tooltip = space;
+        auto format_gcode = [space](std::string gcode) {
+            boost::replace_all(gcode, "\n", "\n" + space);
+            return gcode;
+        };
         tooltip +=  
         	tick_code_it->type == ColorChange ?
         		(m_mode == SingleExtruder ?
@@ -1313,7 +1428,7 @@ wxString Control::get_tooltip(int tick/*=-1*/)
 	                format_wxstr(_L("Custom template (\"%1%\")"), gcode(Template)) :
 		            tick_code_it->type == ToolChange ?
 		                format_wxstr(_L("Extruder (tool) is changed to Extruder \"%1%\""), tick_code_it->extruder) :                
-		                from_u8(tick_code_it->extra);// tick_code_it->type == Custom
+		                from_u8(format_gcode(tick_code_it->extra));// tick_code_it->type == Custom
 
         // If tick is marked as a conflict (exclamation icon),
         // we should to explain why
@@ -1387,8 +1502,14 @@ void Control::OnMotion(wxMouseEvent& event)
         else if (is_point_in_rect(pos, m_rect_higher_thumb))
             m_focus = fiHigherThumb;
         else {
-            m_focus = fiTick;
             tick = get_tick_near_point(pos);
+            if (tick < 0 && m_is_wipe_tower) {
+                tick = get_value_from_position(pos);
+                m_focus = tick > 0 && is_wipe_tower_layer(tick) && (tick == m_lower_value || tick == m_higher_value) ? 
+                          fiSmartWipeTower : fiTick;
+            }
+            else 
+                m_focus = fiTick;
         }
         m_moving_pos = pos;
     }
@@ -1550,9 +1671,8 @@ void Control::move_current_thumb(const bool condition)
     if (accelerator > 0)
         delta *= accelerator;
 
-#if ENABLE_ARROW_KEYS_WITH_SLIDERS
-    if (m_selection == ssUndef) m_selection = ssHigher;
-#endif // ENABLE_ARROW_KEYS_WITH_SLIDERS
+    if (m_selection == ssUndef)
+        m_selection = ssHigher;
 
     if (m_selection == ssLower) {
         m_lower_value -= delta;
@@ -1614,26 +1734,17 @@ void Control::OnKeyDown(wxKeyEvent &event)
             if (key == WXK_LEFT || key == WXK_RIGHT)
                 move_current_thumb(key == WXK_LEFT);
             else if (key == WXK_UP || key == WXK_DOWN) {
-#if ENABLE_ARROW_KEYS_WITH_SLIDERS
                 if (key == WXK_DOWN)
                     m_selection = ssHigher;
                 else if (key == WXK_UP && is_lower_thumb_editable())
                     m_selection = ssLower;
-#else
-                if (key == WXK_UP)
-                    m_selection = ssHigher;
-                else if (key == WXK_DOWN && is_lower_thumb_editable())
-                    m_selection = ssLower;
-#endif // ENABLE_ARROW_KEYS_WITH_SLIDERS
                 Refresh();
             }
         }
-#if ENABLE_ARROW_KEYS_WITH_SLIDERS
         else {
             if (key == WXK_LEFT || key == WXK_RIGHT)
                 move_current_thumb(key == WXK_LEFT);
         }
-#endif // ENABLE_ARROW_KEYS_WITH_SLIDERS
     }
     else {
         if (m_is_focused) {
@@ -1647,12 +1758,10 @@ void Control::OnKeyDown(wxKeyEvent &event)
             else if (key == WXK_UP || key == WXK_DOWN)
                 move_current_thumb(key == WXK_UP);
         }
-#if ENABLE_ARROW_KEYS_WITH_SLIDERS
         else {
             if (key == WXK_UP || key == WXK_DOWN)
                 move_current_thumb(key == WXK_UP);
         }
-#endif // ENABLE_ARROW_KEYS_WITH_SLIDERS
     }
 
     event.Skip(); // !Needed to have EVT_CHAR generated as well
@@ -1896,7 +2005,69 @@ void Control::show_cog_icon_context_menu()
         append_menu_item(&menu, wxID_ANY, _L("Set extruder sequence for the entire print"), "",
             [this](wxCommandEvent&) { edit_extruder_sequence(); }, "", &menu);
 
+    if (m_mode != MultiExtruder && m_draw_mode == dmRegular)
+        append_menu_item(&menu, wxID_ANY, _L("Set auto color changes"), "",
+            [this](wxCommandEvent&) { auto_color_change(); }, "", &menu);
+
     GUI::wxGetApp().plater()->PopupMenu(&menu);
+}
+
+void Control::auto_color_change()
+{
+    if (!m_ticks.empty()) {
+        wxString msg_text = _L("This action will cause deletion of all ticks on vertical slider.") + "\n\n" +
+                            _L("This action is not revertible.\nDo you want to proceed?");
+        GUI::WarningDialog dialog(m_parent, msg_text, _L("Warning"), wxYES | wxNO);
+        if (dialog.ShowModal() == wxID_NO)
+            return;    
+        m_ticks.ticks.clear();
+    }
+
+    int extruders_cnt = GUI::wxGetApp().extruders_edited_cnt();
+    int extruder = 2;
+
+    const Print& print = GUI::wxGetApp().plater()->fff_print();  
+    double delta_area = scale_(scale_(25)); // equal to 25 mm2
+
+    for (auto object : print.objects()) {
+        if (object->layer_count() == 0)
+            continue;
+        double prev_area = area(object->get_layer(0)->lslices);
+
+        for (size_t i = 1; i < object->layers().size(); i++) {
+            Layer* layer = object->get_layer(i);
+            double cur_area = area(layer->lslices);
+
+            if (cur_area > prev_area && prev_area - cur_area > scale_(scale_(1)))
+                break;
+
+            if (prev_area - cur_area > delta_area) {
+                int tick = get_tick_from_value(layer->print_z);
+                if (tick >= 0 && !m_ticks.has_tick(tick)) {
+                    if (m_mode == SingleExtruder) {
+                        m_ticks.set_default_colors(true);
+                        m_ticks.add_tick(tick, ColorChange, 1, layer->print_z);
+                    }
+                    else {
+                        m_ticks.add_tick(tick, ToolChange, extruder, layer->print_z);
+                        if (++extruder > extruders_cnt)
+                            extruder = 1;
+                    }
+                }
+
+                // allow max 3 auto color changes
+                if (m_ticks.ticks.size() == 3)
+                    break;
+            }
+
+            prev_area = cur_area;
+        }
+    }
+
+    if (m_ticks.empty())
+        GUI::wxGetApp().plater()->get_notification_manager()->push_notification(GUI::NotificationType::EmptyAutoColorChange);
+
+    post_ticks_changed_event();
 }
 
 void Control::OnRightUp(wxMouseEvent& event)
@@ -1987,10 +2158,23 @@ static std::string get_custom_code(const std::string& code_in, double height)
         wxTextEntryDialogStyle | wxTE_MULTILINE);
     upgrade_text_entry_dialog(&dlg);
 
+#if ENABLE_VALIDATE_CUSTOM_GCODE
+    bool valid = true;
+    std::string value;
+    do {
+        if (dlg.ShowModal() != wxID_OK)
+            return "";
+
+        value = into_u8(dlg.GetValue());
+        valid = GUI::Tab::validate_custom_gcode("Custom G-code", value);
+    } while (!valid);
+    return value;
+#else
     if (dlg.ShowModal() != wxID_OK)
         return "";
 
-    return dlg.GetValue().ToStdString();
+    return into_u8(dlg.GetValue());
+#endif // ENABLE_VALIDATE_CUSTOM_GCODE
 }
 
 static std::string get_pause_print_msg(const std::string& msg_in, double height)
@@ -2204,12 +2388,9 @@ void Control::edit_extruder_sequence()
             extruder = 0;
         if (m_extruders_sequence.is_mm_intervals) {
             value += m_extruders_sequence.interval_by_mm;
-            auto val_it = std::lower_bound(m_values.begin(), m_values.end(), value - epsilon());
-
-            if (val_it == m_values.end())
+            tick = get_tick_from_value(value);
+            if (tick < 0)
                 break;
-
-            tick = val_it - m_values.begin();
         }
         else
             tick += m_extruders_sequence.interval_by_layers;
@@ -2225,8 +2406,7 @@ void Control::jump_to_value()
     if (value < 0.0)
         return;
 
-    auto it = std::lower_bound(m_values.begin(), m_values.end(), value - epsilon());
-    int tick_value = it - m_values.begin();
+    int tick_value = get_tick_from_value(value);
 
     if (m_selection == ssLower)
         SetLowerValue(tick_value);
@@ -2443,6 +2623,11 @@ bool TickCodeInfo::has_tick_with_code(Type type)
             return true;
 
     return false;
+}
+
+bool TickCodeInfo::has_tick(int tick)
+{
+    return ticks.find(TickCode{ tick }) != ticks.end();
 }
 
 ConflictType TickCodeInfo::is_conflict_tick(const TickCode& tick, Mode out_mode, int only_extruder, double print_z)

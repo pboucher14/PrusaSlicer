@@ -15,16 +15,31 @@
 
 namespace Slic3r {
 
-Flow LayerRegion::flow(FlowRole role, bool bridge, double width) const
+Flow LayerRegion::flow(FlowRole role) const
 {
-    return m_region->flow(
-        role,
-        m_layer->height,
-        bridge,
-        m_layer->id() == 0,
-        width,
-        *m_layer->object()
-    );
+    return this->flow(role, m_layer->height);
+}
+
+Flow LayerRegion::flow(FlowRole role, double layer_height) const
+{
+    return m_region->flow(*m_layer->object(), role, layer_height, m_layer->id() == 0);
+}
+
+Flow LayerRegion::bridging_flow(FlowRole role) const
+{
+    const PrintRegion       &region         = *this->region();
+    const PrintRegionConfig &region_config  = region.config();
+    if (this->layer()->object()->config().thick_bridges) {
+        // The old Slic3r way (different from all other slicers): Use rounded extrusions.
+        // Get the configured nozzle_diameter for the extruder associated to the flow role requested.
+        // Here this->extruder(role) - 1 may underflow to MAX_INT, but then the get_at() will follback to zero'th element, so everything is all right.
+        auto nozzle_diameter = float(region.print()->config().nozzle_diameter.get_at(region.extruder(role) - 1));
+        // Applies default bridge spacing.
+        return Flow::bridging_flow(float(sqrt(region_config.bridge_flow_ratio)) * nozzle_diameter, nozzle_diameter);
+    } else {
+        // The same way as other slicers: Use normal extrusions. Apply bridge_flow_ratio while maintaining the original spacing.
+        return this->flow(role).with_flow_ratio(region_config.bridge_flow_ratio);
+    }
 }
 
 // Fill in layerm->fill_surfaces by trimming the layerm->slices by the cummulative layerm->fill_surfaces.
@@ -59,6 +74,7 @@ void LayerRegion::make_perimeters(const SurfaceCollection &slices, SurfaceCollec
     const PrintRegionConfig &region_config = this->region()->config();
     // This needs to be in sync with PrintObject::_slice() slicing_mode_normal_below_layer!
     bool spiral_vase = print_config.spiral_vase &&
+        //FIXME account for raft layers.
         (this->layer()->id() >= size_t(region_config.bottom_solid_layers.value) &&
          this->layer()->print_z >= region_config.bottom_solid_min_thickness - EPSILON);
 
@@ -84,7 +100,7 @@ void LayerRegion::make_perimeters(const SurfaceCollection &slices, SurfaceCollec
     
     g.layer_id              = (int)this->layer()->id();
     g.ext_perimeter_flow    = this->flow(frExternalPerimeter);
-    g.overhang_flow         = this->region()->flow(frPerimeter, -1, true, false, -1, *this->layer()->object());
+    g.overhang_flow         = this->bridging_flow(frPerimeter);
     g.solid_infill_flow     = this->flow(frSolidInfill);
     
     g.process();
@@ -200,7 +216,7 @@ void LayerRegion::process_external_surfaces(const Layer *lower_layer, const Poly
                         break;
                     }
                 // Grown by 3mm.
-                Polygons polys = offset(to_polygons(bridges[i].expolygon), margin, EXTERNAL_SURFACES_OFFSET_PARAMETERS);
+                Polygons polys = offset(bridges[i].expolygon, margin, EXTERNAL_SURFACES_OFFSET_PARAMETERS);
                 if (idx_island == -1) {
 				    BOOST_LOG_TRIVIAL(trace) << "Bridge did not fall into the source region!";
                 } else {
@@ -266,18 +282,14 @@ void LayerRegion::process_external_surfaces(const Layer *lower_layer, const Poly
                 // would get merged into a single one while they need different directions
                 // also, supply the original expolygon instead of the grown one, because in case
                 // of very thin (but still working) anchors, the grown expolygon would go beyond them
-                BridgeDetector bd(
-                    initial,
-                    lower_layer->lslices,
-                    this->flow(frInfill, true).scaled_width()
-                );
+                BridgeDetector bd(initial, lower_layer->lslices, this->bridging_flow(frInfill).scaled_width());
                 #ifdef SLIC3R_DEBUG
                 printf("Processing bridge at layer %zu:\n", this->layer()->id());
                 #endif
 				double custom_angle = Geometry::deg2rad(this->region()->config().bridge_angle.value);
 				if (bd.detect_angle(custom_angle)) {
                     bridges[idx_last].bridge_angle = bd.angle;
-                    if (this->layer()->object()->config().support_material) {
+                    if (this->layer()->object()->has_support()) {
 //                        polygons_append(this->bridged, bd.coverage());
                         append(this->unsupported_bridge_edges, bd.unsupported_edges());
                     }

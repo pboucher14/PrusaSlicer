@@ -5,6 +5,10 @@
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "GLModel.hpp"
 
+#if ENABLE_GCODE_WINDOW
+#include <boost/iostreams/device/mapped_file.hpp>
+#endif // ENABLE_GCODE_WINDOW
+
 #include <cstdint>
 #include <float.h>
 #include <set>
@@ -85,35 +89,20 @@ class GCodeViewer
         size_t vertex_size_bytes() const { return vertex_size_floats() * sizeof(float); }
 
         size_t position_offset_floats() const { return 0; }
-        size_t position_offset_size() const { return position_offset_floats() * sizeof(float); }
-        size_t position_size_floats() const {
-            switch (format)
-            {
-            case EFormat::Position:
-            case EFormat::PositionNormal3: { return 3; }
-            case EFormat::PositionNormal1: { return 4; }
-            default:                       { return 0; }
-            }
-        }
+        size_t position_offset_bytes() const { return position_offset_floats() * sizeof(float); }
+
+        size_t position_size_floats() const { return 3; }
         size_t position_size_bytes() const { return position_size_floats() * sizeof(float); }
 
-        size_t normal_offset_floats() const {
-            switch (format)
-            {
-            case EFormat::Position:
-            case EFormat::PositionNormal1: { return 0; }
-            case EFormat::PositionNormal3: { return 3; }
-            default:                       { return 0; }
-            }
-        }
-        size_t normal_offset_size() const { return normal_offset_floats() * sizeof(float); }
+        size_t normal_offset_floats() const { return position_size_floats(); }
+        size_t normal_offset_bytes() const { return normal_offset_floats() * sizeof(float); }
+
         size_t normal_size_floats() const {
             switch (format)
             {
-            default:
-            case EFormat::Position:
-            case EFormat::PositionNormal1: { return 0; }
+            case EFormat::PositionNormal1: { return 1; }
             case EFormat::PositionNormal3: { return 3; }
+            default:                       { return 0; }
             }
         }
         size_t normal_size_bytes() const { return normal_size_floats() * sizeof(float); }
@@ -179,6 +168,7 @@ class GCodeViewer
         float width{ 0.0f };
         float feedrate{ 0.0f };
         float fan_speed{ 0.0f };
+        float temperature{ 0.0f };
         float volumetric_rate{ 0.0f };
         unsigned char extruder_id{ 0 };
         unsigned char cp_color_id{ 0 };
@@ -218,14 +208,19 @@ class GCodeViewer
     // Used to batch the indices needed to render the paths
     struct RenderPath
     {
+#if ENABLE_REDUCED_TOOLPATHS_SEGMENT_CAPS
+        // Index of the parent tbuffer
+        unsigned char               tbuffer_id;
+#endif // ENABLE_REDUCED_TOOLPATHS_SEGMENT_CAPS
         // Render path property
         Color                       color;
         // Index of the buffer in TBuffer::indices
-        unsigned int                index_buffer_id;
+        unsigned int                ibuffer_id;
         // Render path content
+        // Index of the path in TBuffer::paths
         unsigned int                path_id;
         std::vector<unsigned int>   sizes;
-        std::vector<size_t>         offsets; // use size_t because we need an unsigned int whose size matches pointer's size (used in the call glMultiDrawElements())
+        std::vector<size_t>         offsets; // use size_t because we need an unsigned integer whose size matches pointer's size (used in the call glMultiDrawElements())
 #if ENABLE_REDUCED_TOOLPATHS_SEGMENT_CAPS
         bool contains(size_t offset) const {
             for (size_t i = 0; i < offsets.size(); ++i) {
@@ -236,26 +231,36 @@ class GCodeViewer
         }
 #endif // ENABLE_REDUCED_TOOLPATHS_SEGMENT_CAPS
     };
-    struct RenderPathPropertyHash {
-        size_t operator() (const RenderPath &p) const {
-            // Conver the RGB value to an integer hash.
-//            return (size_t(int(p.color[0] * 255) + 255 * int(p.color[1] * 255) + (255 * 255) * int(p.color[2] * 255)) * 7919) ^ size_t(p.index_buffer_id);
-            return size_t(int(p.color[0] * 255) + 255 * int(p.color[1] * 255) + (255 * 255) * int(p.color[2] * 255)) ^ size_t(p.index_buffer_id);
-        }
-    };
+//    // for unordered_set implementation of render_paths
+//    struct RenderPathPropertyHash {
+//        size_t operator() (const RenderPath &p) const {
+//            // Convert the RGB value to an integer hash.
+////            return (size_t(int(p.color[0] * 255) + 255 * int(p.color[1] * 255) + (255 * 255) * int(p.color[2] * 255)) * 7919) ^ size_t(p.ibuffer_id);
+//            return size_t(int(p.color[0] * 255) + 255 * int(p.color[1] * 255) + (255 * 255) * int(p.color[2] * 255)) ^ size_t(p.ibuffer_id);
+//        }
+//    };
     struct RenderPathPropertyLower {
         bool operator() (const RenderPath &l, const RenderPath &r) const {
-            for (int i = 0; i < 3; ++ i)
+#if ENABLE_REDUCED_TOOLPATHS_SEGMENT_CAPS
+            if (l.tbuffer_id < r.tbuffer_id)
+                return true;
+#endif // ENABLE_REDUCED_TOOLPATHS_SEGMENT_CAPS
+            for (int i = 0; i < 3; ++i) {
                 if (l.color[i] < r.color[i])
                     return true;
                 else if (l.color[i] > r.color[i])
                     return false;
-            return l.index_buffer_id < r.index_buffer_id;
+            }
+            return l.ibuffer_id < r.ibuffer_id;
         }
     };
     struct RenderPathPropertyEqual {
         bool operator() (const RenderPath &l, const RenderPath &r) const {
-            return l.color == r.color && l.index_buffer_id == r.index_buffer_id;
+#if ENABLE_REDUCED_TOOLPATHS_SEGMENT_CAPS
+            return l.tbuffer_id == r.tbuffer_id && l.ibuffer_id == r.ibuffer_id && l.color == r.color;
+#else
+            return l.color == r.color && l.ibuffer_id == r.ibuffer_id;
+#endif // ENABLE_REDUCED_TOOLPATHS_SEGMENT_CAPS
         }
     };
 
@@ -392,6 +397,8 @@ class GCodeViewer
             Range fan_speed;
             // Color mapping by volumetric extrusion rate.
             Range volumetric_rate;
+            // Color mapping by extrusion temperature.
+            Range temperature;
 
             void reset() {
                 height.reset();
@@ -399,6 +406,7 @@ class GCodeViewer
                 feedrate.reset();
                 fan_speed.reset();
                 volumetric_rate.reset();
+                temperature.reset();
             }
         };
 
@@ -587,6 +595,46 @@ public:
             void render() const;
         };
 
+#if ENABLE_GCODE_WINDOW
+        class GCodeWindow
+        {
+            struct Line
+            {
+                std::string command;
+                std::string parameters;
+                std::string comment;
+            };
+            bool m_visible{ true };
+            uint64_t m_selected_line_id{ 0 };
+            size_t m_last_lines_size{ 0 };
+            std::string m_filename;
+            boost::iostreams::mapped_file_source m_file;
+            // map for accessing data in file by line number
+            std::vector<std::pair<uint64_t, uint64_t>> m_lines_map;
+            // current visible lines
+            std::vector<Line> m_lines;
+
+        public:
+            GCodeWindow() = default;
+            ~GCodeWindow() { stop_mapping_file(); }
+            void set_filename(const std::string& filename) { m_filename = filename; }
+            void load_gcode();
+            void reset() {
+                stop_mapping_file();
+                m_lines_map.clear();
+                m_lines.clear();
+                m_filename.clear();
+            }
+
+            void toggle_visibility() { m_visible = !m_visible; }
+
+            void render(float top, float bottom, uint64_t curr_line_id) const;
+
+        private:
+            void stop_mapping_file();
+        };
+#endif // ENABLE_GCODE_WINDOW
+
         struct Endpoints
         {
             size_t first{ 0 };
@@ -599,6 +647,16 @@ public:
         Endpoints last_current;
         Vec3f current_position{ Vec3f::Zero() };
         Marker marker;
+#if ENABLE_GCODE_WINDOW
+        GCodeWindow gcode_window;
+#endif // ENABLE_GCODE_WINDOW
+#if ENABLE_GCODE_LINES_ID_IN_H_SLIDER
+        std::vector<unsigned int> gcode_ids;
+#endif // ENABLE_GCODE_LINES_ID_IN_H_SLIDER
+
+#if ENABLE_GCODE_WINDOW
+        void render(float legend_height) const;
+#endif // ENABLE_GCODE_WINDOW
     };
 
     enum class EViewType : unsigned char
@@ -608,6 +666,7 @@ public:
         Width,
         Feedrate,
         FanSpeed,
+        Temperature,
         VolumetricRate,
         Tool,
         ColorPrint,
@@ -653,9 +712,7 @@ public:
     void load(const GCodeProcessor::Result& gcode_result, const Print& print, bool initialized);
     // recalculate ranges in dependence of what is visible and sets tool/print colors
     void refresh(const GCodeProcessor::Result& gcode_result, const std::vector<std::string>& str_tool_colors);
-#if ENABLE_RENDER_PATH_REFRESH_AFTER_OPTIONS_CHANGE
     void refresh_render_paths();
-#endif // ENABLE_RENDER_PATH_REFRESH_AFTER_OPTIONS_CHANGE
     void update_shells_color_by_extruder(const DynamicPrintConfig* config);
 
     void reset();
@@ -694,13 +751,21 @@ public:
 
     void export_toolpaths_to_obj(const char* filename) const;
 
+#if ENABLE_GCODE_WINDOW
+    void toggle_gcode_window_visibility() { m_sequential_view.gcode_window.toggle_visibility(); }
+#endif // ENABLE_GCODE_WINDOW
+
 private:
     void load_toolpaths(const GCodeProcessor::Result& gcode_result);
     void load_shells(const Print& print, bool initialized);
     void refresh_render_paths(bool keep_sequential_current_first, bool keep_sequential_current_last) const;
     void render_toolpaths() const;
     void render_shells() const;
+#if ENABLE_GCODE_WINDOW
+    void render_legend(float& legend_height) const;
+#else
     void render_legend() const;
+#endif // ENABLE_GCODE_WINDOW
 #if ENABLE_GCODE_VIEWER_STATISTICS
     void render_statistics() const;
 #endif // ENABLE_GCODE_VIEWER_STATISTICS

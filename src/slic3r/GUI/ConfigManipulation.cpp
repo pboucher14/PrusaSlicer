@@ -45,7 +45,7 @@ void ConfigManipulation::update_print_fff_config(DynamicPrintConfig* config, con
     // layer_height shouldn't be equal to zero
     if (config->opt_float("layer_height") < EPSILON)
     {
-        const wxString msg_text = _(L("Zero layer height is not valid.\n\nThe layer height will be reset to 0.01."));
+        const wxString msg_text = _(L("Layer height is not valid.\n\nThe layer height will be reset to 0.01."));
         wxMessageDialog dialog(nullptr, msg_text, _(L("Layer height")), wxICON_WARNING | wxOK);
         DynamicPrintConfig new_conf = *config;
         is_msg_dlg_already_exist = true;
@@ -55,9 +55,9 @@ void ConfigManipulation::update_print_fff_config(DynamicPrintConfig* config, con
         is_msg_dlg_already_exist = false;
     }
 
-    if (fabs(config->option<ConfigOptionFloatOrPercent>("first_layer_height")->value - 0) < EPSILON)
+    if (config->option<ConfigOptionFloatOrPercent>("first_layer_height")->value < EPSILON)
     {
-        const wxString msg_text = _(L("Zero first layer height is not valid.\n\nThe first layer height will be reset to 0.01."));
+        const wxString msg_text = _(L("First layer height is not valid.\n\nThe first layer height will be reset to 0.01."));
         wxMessageDialog dialog(nullptr, msg_text, _(L("First layer height")), wxICON_WARNING | wxOK);
         DynamicPrintConfig new_conf = *config;
         is_msg_dlg_already_exist = true;
@@ -278,14 +278,18 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig* config)
     bool have_support_material_auto = have_support_material && config->opt_bool("support_material_auto");
     bool have_support_interface = config->opt_int("support_material_interface_layers") > 0;
     bool have_support_soluble = have_support_material && config->opt_float("support_material_contact_distance") == 0;
-    for (auto el : { "support_material_pattern", "support_material_with_sheath",
-                    "support_material_spacing", "support_material_angle", "support_material_interface_layers",
+    auto support_material_style = config->opt_enum<SupportMaterialStyle>("support_material_style");
+    for (auto el : { "support_material_style", "support_material_pattern", "support_material_with_sheath",
+                    "support_material_spacing", "support_material_angle", 
+                    "support_material_interface_pattern", "support_material_interface_layers",
                     "dont_support_bridges", "support_material_extrusion_width", "support_material_contact_distance",
                     "support_material_xy_spacing" })
         toggle_field(el, have_support_material);
     toggle_field("support_material_threshold", have_support_material_auto);
+    toggle_field("support_material_bottom_contact_distance", have_support_material && ! have_support_soluble);
+    toggle_field("support_material_closing_radius", have_support_material && support_material_style == smsSnug);
 
-    for (auto el : { "support_material_interface_spacing", "support_material_interface_extruder",
+    for (auto el : { "support_material_bottom_interface_layers", "support_material_interface_spacing", "support_material_interface_extruder",
                     "support_material_interface_speed", "support_material_interface_contact_loops" })
         toggle_field(el, have_support_material && have_support_interface);
     toggle_field("support_material_synchronize_layers", have_support_soluble);
@@ -293,6 +297,9 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig* config)
     toggle_field("perimeter_extrusion_width", have_perimeters || have_skirt || have_brim);
     toggle_field("support_material_extruder", have_support_material || have_skirt);
     toggle_field("support_material_speed", have_support_material || have_brim || have_skirt);
+
+    toggle_field("raft_contact_distance", have_raft && !have_support_soluble);
+    toggle_field("raft_expansion", have_raft);
 
     bool has_ironing = config->opt_bool("ironing");
     for (auto el : { "ironing_type", "ironing_flowrate", "ironing_spacing", "ironing_speed" })
@@ -306,7 +313,7 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig* config)
     toggle_field("standby_temperature_delta", have_ooze_prevention);
 
     bool have_wipe_tower = config->opt_bool("wipe_tower");
-    for (auto el : { "wipe_tower_x", "wipe_tower_y", "wipe_tower_width", "wipe_tower_rotation_angle",
+    for (auto el : { "wipe_tower_x", "wipe_tower_y", "wipe_tower_width", "wipe_tower_rotation_angle", "wipe_tower_brim_width",
                      "wipe_tower_bridging", "wipe_tower_no_sparse_layers", "single_extruder_multi_material_priming" })
         toggle_field(el, have_wipe_tower);
 

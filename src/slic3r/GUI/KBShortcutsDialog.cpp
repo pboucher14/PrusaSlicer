@@ -147,17 +147,11 @@ void KBShortcutsDialog::fill_shortcuts()
             { "O", L("Zoom out") },
             { "Tab", L("Switch between Editor/Preview") },
             { "Shift+Tab", L("Collapse/Expand the sidebar") },
-#if ENABLE_CTRL_M_ON_WINDOWS
 #ifdef _WIN32
             { ctrl + "M", L("Show/Hide 3Dconnexion devices settings dialog, if enabled") },
 #else
             { ctrl + "M", L("Show/Hide 3Dconnexion devices settings dialog") },
 #endif // _WIN32
-#else
-#if defined(__linux__) || defined(__APPLE__)
-            { ctrl + "M", L("Show/Hide 3Dconnexion devices settings dialog") },
-#endif // __linux__
-#endif // ENABLE_CTRL_M_ON_WINDOWS
 #if ENABLE_RENDER_PICKING_PASS
             // Don't localize debugging texts.
             { "P", "Toggle picking pass texture rendering on/off" },
@@ -192,7 +186,6 @@ void KBShortcutsDialog::fill_shortcuts()
     }
 
     Shortcuts preview_shortcuts = {
-#if ENABLE_ARROW_KEYS_WITH_SLIDERS
         { L("Arrow Up"),    L("Vertical slider - Move active thumb Up") },
         { L("Arrow Down"),  L("Vertical slider - Move active thumb Down") },
         { L("Arrow Left"),  L("Horizontal slider - Move active thumb Left") },
@@ -203,33 +196,20 @@ void KBShortcutsDialog::fill_shortcuts()
         { "D", L("Horizontal slider - Move active thumb Right") },
         { "X", L("On/Off one layer mode of the vertical slider") },
         { "L", L("Show/Hide Legend and Estimated printing time") },
-#else
-        { L("Arrow Up"), L("Upper layer") },
-        { L("Arrow Down"), L("Lower layer") },
-        { "U", L("Upper Layer") },
-        { "D", L("Lower Layer") },
-        { "L", L("Show/Hide Legend & Estimated printing time") },
-#endif // ENABLE_ARROW_KEYS_WITH_SLIDERS
+#if ENABLE_GCODE_WINDOW
+        { "C", L("Show/Hide G-code window") },
+#endif // ENABLE_GCODE_WINDOW
     };
 
     m_full_shortcuts.push_back({ { _L("Preview"), "" }, preview_shortcuts });
 
     Shortcuts layers_slider_shortcuts = {
-#if ENABLE_ARROW_KEYS_WITH_SLIDERS
         { L("Arrow Up"),    L("Move active thumb Up") },
         { L("Arrow Down"),  L("Move active thumb Down") },
         { L("Arrow Left"),  L("Set upper thumb as active") },
         { L("Arrow Right"), L("Set lower thumb as active") },
         { "+", L("Add color change marker for current layer") },
         { "-", L("Delete color change marker for current layer") },
-#else
-        { L("Arrow Up"), L("Move current slider thumb Up") },
-        { L("Arrow Down"), L("Move current slider thumb Down") },
-        { L("Arrow Left"), L("Set upper thumb to current slider thumb") },
-        { L("Arrow Right"), L("Set lower thumb to current slider thumb") },
-        { "+", L("Add color change marker for current layer") },
-        { "-", L("Delete color change marker for current layer") },
-#endif // ENABLE_ARROW_KEYS_WITH_SLIDERS
         { "Shift+", L("Press to speed up 5 times while moving thumb\nwith arrow keys or mouse wheel") },
         { ctrl, L("Press to speed up 5 times while moving thumb\nwith arrow keys or mouse wheel") },
     };
@@ -237,15 +217,10 @@ void KBShortcutsDialog::fill_shortcuts()
     m_full_shortcuts.push_back({ { _L("Vertical Slider"), _L("The following shortcuts are applicable in G-code preview when the vertical slider is active") }, layers_slider_shortcuts });
 
     Shortcuts sequential_slider_shortcuts = {
-#if ENABLE_ARROW_KEYS_WITH_SLIDERS
         { L("Arrow Left"),  L("Move active thumb Left") },
         { L("Arrow Right"), L("Move active thumb Right") },
         { L("Arrow Up"),    L("Set left thumb as active") },
         { L("Arrow Down"),  L("Set right thumb as active") },
-#else
-        { L("Arrow Left"),  L("Move active slider thumb Left") },
-        { L("Arrow Right"), L("Move active slider thumb Right") },
-#endif // ENABLE_ARROW_KEYS_WITH_SLIDERS
         { "Shift+", L("Press to speed up 5 times while moving thumb\nwith arrow keys or mouse wheel") },
         { ctrl, L("Press to speed up 5 times while moving thumb\nwith arrow keys or mouse wheel") },
     };

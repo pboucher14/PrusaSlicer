@@ -75,8 +75,8 @@ public:
         m_tool_changes(tool_changes),
         m_final_purge(final_purge),
         m_layer_idx(-1),
-        m_tool_change_idx(0),
-        m_brim_done(false) {}
+        m_tool_change_idx(0)
+    {}
 
     std::string prime(GCode &gcodegen);
     void next_layer() { ++ m_layer_idx; m_tool_change_idx = 0; }
@@ -105,8 +105,6 @@ private:
     // Current layer index.
     int                                                          m_layer_idx;
     int                                                          m_tool_change_idx;
-    bool                                                         m_brim_done;
-    bool                                                         i_have_brim = false;
     double                                                       m_last_wipe_tower_print_z = 0.f;
 };
 
@@ -131,14 +129,9 @@ public:
         m_volumetric_speed(0),
         m_last_pos_defined(false),
         m_last_extrusion_role(erNone),
-#if ENABLE_TOOLPATHS_WIDTH_HEIGHT_FROM_GCODE
         m_last_width(0.0f),
-#endif // ENABLE_TOOLPATHS_WIDTH_HEIGHT_FROM_GCODE
 #if ENABLE_GCODE_VIEWER_DATA_CHECKING
         m_last_mm3_per_mm(0.0),
-#if !ENABLE_TOOLPATHS_WIDTH_HEIGHT_FROM_GCODE
-        m_last_width(0.0f),
-#endif // !ENABLE_TOOLPATHS_WIDTH_HEIGHT_FROM_GCODE
 #endif // ENABLE_GCODE_VIEWER_DATA_CHECKING
         m_brim_done(false),
         m_second_layer_things_done(false),
@@ -201,6 +194,7 @@ private:
         // Set of object & print layers of the same PrintObject and with the same print_z.
         const std::vector<LayerToPrint> &layers,
         const LayerTools  				&layer_tools,
+        const bool                       last_layer,
 		// Pairs of PrintObject index and its instance index.
 		const std::vector<const PrintInstance*> *ordering,
         // If set to size_t(-1), then print all copies of all objects.
@@ -332,14 +326,9 @@ private:
     float                               m_last_height{ 0.0f };
     float                               m_last_layer_z{ 0.0f };
     float                               m_max_layer_z{ 0.0f };
-#if ENABLE_TOOLPATHS_WIDTH_HEIGHT_FROM_GCODE
     float                               m_last_width{ 0.0f };
-#endif // ENABLE_TOOLPATHS_WIDTH_HEIGHT_FROM_GCODE
 #if ENABLE_GCODE_VIEWER_DATA_CHECKING
     double                              m_last_mm3_per_mm;
-#if !ENABLE_TOOLPATHS_WIDTH_HEIGHT_FROM_GCODE
-    float                               m_last_width{ 0.0f };
-#endif // !ENABLE_TOOLPATHS_WIDTH_HEIGHT_FROM_GCODE
 #endif // ENABLE_GCODE_VIEWER_DATA_CHECKING
 
     Point                               m_last_pos;
@@ -382,7 +371,7 @@ private:
     void print_machine_envelope(FILE *file, Print &print);
     void _print_first_layer_bed_temperature(FILE *file, Print &print, const std::string &gcode, unsigned int first_printing_extruder_id, bool wait);
     void _print_first_layer_extruder_temperatures(FILE *file, Print &print, const std::string &gcode, unsigned int first_printing_extruder_id, bool wait);
-    // this flag triggers first layer speeds
+    // On the first printing layer. This flag triggers first layer speeds.
     bool                                on_first_layer() const { return m_layer != nullptr && m_layer->id() == 0; }
 
     friend ObjectByExtruder& object_by_extruder(

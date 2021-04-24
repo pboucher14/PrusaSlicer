@@ -151,10 +151,8 @@ public:
     std::vector<size_t> load_files(const std::vector<boost::filesystem::path>& input_files, bool load_model = true, bool load_config = true, bool imperial_units = false);
     // To be called when providing a list of files to the GUI slic3r on command line.
     std::vector<size_t> load_files(const std::vector<std::string>& input_files, bool load_model = true, bool load_config = true, bool imperial_units = false);
-#if ENABLE_DRAG_AND_DROP_FIX
     // to be called on drag and drop
     bool load_files(const wxArrayString& filenames);
-#endif // ENABLE_DRAG_AND_DROP_FIX
 
     const wxString& get_last_loaded_gcode() const { return m_last_loaded_gcode; }
 
@@ -193,6 +191,7 @@ public:
     bool is_selection_empty() const;
     void scale_selection_to_fit_print_volume();
     void convert_unit(ConversionType conv_type);
+    void toggle_layers_editing(bool enable);
 
     void cut(size_t obj_idx, size_t instance_idx, coordf_t z, bool keep_upper = true, bool keep_lower = true, bool rotate_lower = false);
 
@@ -260,7 +259,7 @@ public:
     BoundingBoxf bed_shape_bb() const;
     
     void arrange();
-    void find_new_position(const ModelInstancePtrs  &instances, coord_t min_d);
+    void find_new_position(const ModelInstancePtrs  &instances);
 
     void set_current_canvas_as_dirty();
     void unbind_canvas_event_handlers();
@@ -273,6 +272,10 @@ public:
     void copy_selection_to_clipboard();
     void paste_from_clipboard();
     void search(bool plater_is_active);
+    void mirror(Axis axis);
+    void split_object();
+    void split_volume();
+    void optimize_rotation();
 
     bool can_delete() const;
     bool can_delete_all() const;
@@ -289,6 +292,8 @@ public:
     bool can_undo() const;
     bool can_redo() const;
     bool can_reload_from_disk() const;
+    bool can_mirror() const;
+    bool can_split(bool to_objects) const;
 
     void msw_rescale();
     void sys_color_changed();
@@ -376,6 +381,15 @@ public:
 	// Wrapper around wxWindow::PopupMenu to suppress error messages popping out while tracking the popup menu.
 	bool PopupMenu(wxMenu *menu, const wxPoint& pos = wxDefaultPosition);
     bool PopupMenu(wxMenu *menu, int x, int y) { return this->PopupMenu(menu, wxPoint(x, y)); }
+
+    // get same Plater/ObjectList menus
+    wxMenu* object_menu();
+    wxMenu* part_menu();
+    wxMenu* sla_object_menu();
+    wxMenu* default_menu();
+    wxMenu* instance_menu();
+    wxMenu* layer_menu();
+    wxMenu* multi_selection_menu();
 
 private:
     struct priv;

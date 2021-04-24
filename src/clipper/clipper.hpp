@@ -37,10 +37,12 @@
 #include <inttypes.h>
 #include <functional>
 
+#include <Eigen/Geometry> 
+
 #define CLIPPER_VERSION "6.2.6"
 
-//use_xyz: adds a Z member to IntPoint. Adds a minor cost to perfomance.
-//#define use_xyz
+//CLIPPERLIB_USE_XYZ: adds a Z member to IntPoint. Adds a minor cost to perfomance.
+//#define CLIPPERLIB_USE_XYZ
 
 //use_lines: Enables line clipping. Adds a very minor cost to performance.
 #define use_lines
@@ -57,11 +59,15 @@
 #include <functional>
 #include <queue>
 
-#ifdef use_xyz
-namespace ClipperLib_Z {
-#else /* use_xyz */
-namespace ClipperLib {
-#endif /* use_xyz */
+#ifdef CLIPPERLIB_NAMESPACE_PREFIX
+  namespace CLIPPERLIB_NAMESPACE_PREFIX {
+#endif // CLIPPERLIB_NAMESPACE_PREFIX
+
+#ifdef CLIPPERLIB_USE_XYZ
+  namespace ClipperLib_Z {
+#else
+  namespace ClipperLib {
+#endif
 
 enum ClipType { ctIntersection, ctUnion, ctDifference, ctXor };
 enum PolyType { ptSubject, ptClip };
@@ -71,36 +77,41 @@ enum PolyType { ptSubject, ptClip };
 //see http://glprogramming.com/red/chapter11.html
 enum PolyFillType { pftEvenOdd, pftNonZero, pftPositive, pftNegative };
 
+// If defined, Clipper will work with 32bit signed int coordinates to reduce memory
+// consumption and to speed up exact orientation predicate calculation.
+// In that case, coordinates and their differences (vectors of the coordinates) have to fit int32_t.
+#define CLIPPERLIB_INT32
+
 // Point coordinate type
-typedef int64_t cInt;
-// Maximum cInt value to allow a cross product calculation using 32bit expressions.
-static cInt const loRange = 0x3FFFFFFF;
-// Maximum allowed cInt value.
-static cInt const hiRange = 0x3FFFFFFFFFFFFFFFLL;
-
-struct IntPoint {
-  cInt X;
-  cInt Y;
-#ifdef use_xyz
-  cInt Z;
-  IntPoint(cInt x = 0, cInt y = 0, cInt z = 0): X(x), Y(y), Z(z) {};
+#ifdef CLIPPERLIB_INT32
+  // Coordinates and their differences (vectors of the coordinates) have to fit int32_t.
+  typedef int32_t cInt;
 #else
-  IntPoint(cInt x = 0, cInt y = 0): X(x), Y(y) {};
-#endif
+  typedef int64_t cInt;
+  // Maximum cInt value to allow a cross product calculation using 32bit expressions.
+  static constexpr cInt const loRange = 0x3FFFFFFF; // 0x3FFFFFFF = 1 073 741 823
+  // Maximum allowed cInt value.
+  static constexpr cInt const hiRange = 0x3FFFFFFFFFFFFFFFLL;
+#endif // CLIPPERLIB_INT32
 
-  friend inline bool operator== (const IntPoint& a, const IntPoint& b)
-  {
-    return a.X == b.X && a.Y == b.Y;
-  }
-  friend inline bool operator!= (const IntPoint& a, const IntPoint& b)
-  {
-    return a.X != b.X  || a.Y != b.Y; 
-  }
-};
+#ifdef CLIPPERLIB_INTPOINT_TYPE
+using IntPoint = CLIPPERLIB_INTPOINT_TYPE;
+#else // CLIPPERLIB_INTPOINT_TYPE
+using IntPoint = Eigen::Matrix<cInt, 
+#ifdef CLIPPERLIB_USE_XYZ
+  3
+#else // CLIPPERLIB_USE_XYZ
+  2
+#endif // CLIPPERLIB_USE_XYZ
+  , 1, Eigen::DontAlign>;
+#endif // CLIPPERLIB_INTPOINT_TYPE
+
+using DoublePoint = Eigen::Matrix<double, 2, 1, Eigen::DontAlign>;
+
 //------------------------------------------------------------------------------
 
-typedef std::vector< IntPoint > Path;
-typedef std::vector< Path > Paths;
+typedef std::vector<IntPoint> Path;
+typedef std::vector<Path> Paths;
 
 inline Path& operator <<(Path& poly, const IntPoint& p) {poly.push_back(p); return poly;}
 inline Paths& operator <<(Paths& polys, const Path& p) {polys.push_back(p); return polys;}
@@ -109,16 +120,9 @@ std::ostream& operator <<(std::ostream &s, const IntPoint &p);
 std::ostream& operator <<(std::ostream &s, const Path &p);
 std::ostream& operator <<(std::ostream &s, const Paths &p);
 
-struct DoublePoint
-{
-  double X;
-  double Y;
-  DoublePoint(double x = 0, double y = 0) : X(x), Y(y) {}
-  DoublePoint(IntPoint ip) : X((double)ip.X), Y((double)ip.Y) {}
-};
 //------------------------------------------------------------------------------
 
-#ifdef use_xyz
+#ifdef CLIPPERLIB_USE_XYZ
 typedef std::function<void(const IntPoint& e1bot, const IntPoint& e1top, const IntPoint& e2bot, const IntPoint& e2top, IntPoint& pt)> ZFillCallback;
 #endif
 
@@ -259,11 +263,11 @@ enum EdgeSide { esLeft = 1, esRight = 2};
   };
 
   // Point of an output polygon.
-  // 36B on 64bit system without use_xyz.
+  // 36B on 64bit system without CLIPPERLIB_USE_XYZ.
   struct OutPt {
     // 4B
     int       Idx;
-    // 16B without use_xyz / 24B with use_xyz
+    // 16B without CLIPPERLIB_USE_XYZ / 24B with CLIPPERLIB_USE_XYZ
     IntPoint  Pt;
     // 4B on 32bit system, 8B on 64bit system
     OutPt    *Next;
@@ -289,7 +293,11 @@ enum EdgeSide { esLeft = 1, esRight = 2};
 class ClipperBase
 {
 public:
-  ClipperBase() : m_UseFullRange(false), m_HasOpenPaths(false) {}
+  ClipperBase() : 
+#ifndef CLIPPERLIB_INT32
+    m_UseFullRange(false), 
+#endif // CLIPPERLIB_INT32
+    m_HasOpenPaths(false) {}
   ~ClipperBase() { Clear(); }
   bool AddPath(const Path &pg, PolyType PolyTyp, bool Closed);
   bool AddPaths(const Paths &ppg, PolyType PolyTyp, bool Closed);
@@ -310,9 +318,14 @@ protected:
   // Local minima (Y, left edge, right edge) sorted by ascending Y.
   std::vector<LocalMinimum> m_MinimaList;
 
+#ifdef CLIPPERLIB_INT32
+  static constexpr const bool m_UseFullRange = false;
+#else // CLIPPERLIB_INT32
   // True if the input polygons have abs values higher than loRange, but lower than hiRange.
   // False if the input polygons have abs values lower or equal to loRange.
   bool              m_UseFullRange;
+#endif // CLIPPERLIB_INT32
+
   // A vector of edges per each input path.
   std::vector<std::vector<TEdge>> m_edges;
   // Don't remove intermediate vertices of a collinear sequence of points.
@@ -349,7 +362,7 @@ public:
   bool StrictlySimple() const {return m_StrictSimple;};
   void StrictlySimple(bool value) {m_StrictSimple = value;};
   //set the callback function for z value filling on intersections (otherwise Z is 0)
-#ifdef use_xyz
+#ifdef CLIPPERLIB_USE_XYZ
   void ZFillFunction(ZFillCallback zFillFunc) { m_ZFill = zFillFunc; }
 #endif
 protected:
@@ -382,7 +395,7 @@ private:
   // Does the result go to a PolyTree or Paths?
   bool                  m_UsingPolyTree; 
   bool                  m_StrictSimple;
-#ifdef use_xyz
+#ifdef CLIPPERLIB_USE_XYZ
   ZFillCallback         m_ZFill; //custom callback 
 #endif
   void SetWindingCount(TEdge& edge) const;
@@ -435,7 +448,7 @@ private:
   void DoSimplePolygons();
   void FixupFirstLefts1(OutRec* OldOutRec, OutRec* NewOutRec) const;
   void FixupFirstLefts2(OutRec* OldOutRec, OutRec* NewOutRec) const;
-#ifdef use_xyz
+#ifdef CLIPPERLIB_USE_XYZ
   void SetZ(IntPoint& pt, TEdge& e1, TEdge& e2);
 #endif
 };
@@ -487,6 +500,8 @@ class clipperException : public std::exception
 
 } //ClipperLib namespace
 
+#ifdef CLIPPERLIB_NAMESPACE_PREFIX
+} // namespace CLIPPERLIB_NAMESPACE_PREFIX
+#endif // CLIPPERLIB_NAMESPACE_PREFIX
+
 #endif //clipper_hpp
-
-

@@ -16,6 +16,7 @@
 #include "slic3r/GUI/GUI_ObjectSettings.hpp"
 #include "slic3r/GUI/GUI_ObjectList.hpp"
 #include "slic3r/GUI/Plater.hpp"
+#include "slic3r/GUI/NotificationManager.hpp"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/SLAPrint.hpp"
 
@@ -903,7 +904,7 @@ void GLGizmoSlaSupports::on_set_state()
         m_new_point_head_diameter = static_cast<const ConfigOptionFloat*>(cfg.option("support_head_front_diameter"))->value;
     }
     if (m_state == Off && m_old_state != Off) { // the gizmo was just turned Off
-        bool will_ask = m_editing_mode && unsaved_changes();
+        bool will_ask = m_editing_mode && unsaved_changes() && on_is_activable();
         if (will_ask) {
             wxGetApp().CallAfter([this]() {
                 // Following is called through CallAfter, because otherwise there was a problem
@@ -1161,6 +1162,7 @@ void GLGizmoSlaSupports::disable_editing_mode()
         m_c->instances_hider()->show_supports(true);
         m_parent.set_as_dirty();
     }
+    wxGetApp().plater()->get_notification_manager()->close_notification_of_type(NotificationType::QuitSLAManualMode);
 }
 
 

@@ -15,7 +15,7 @@
 // !!! If you needed to translate some string,
 // !!! please use _L(string)
 // !!! _() - is a standard wxWidgets macro to translate
-// !!! L() is used only for marking localizable string 
+// !!! L() is used only for marking localizable string
 // !!! It will be used in "xgettext" to create a Locating Message Catalog.
 #define L(s) s
 #endif /* L */
@@ -296,6 +296,13 @@ void Preset::normalize(DynamicPrintConfig &config)
         if (auto *gap_fill_enabled = config.option<ConfigOptionBool>("gap_fill_enabled", false); gap_fill_enabled)
             gap_fill_enabled->value = false;
     }
+    if (auto *first_layer_height = config.option<ConfigOptionFloatOrPercent>("first_layer_height", false); first_layer_height && first_layer_height->percent)
+        if (const auto *layer_height = config.option<ConfigOptionFloat>("layer_height", false); layer_height) {
+            // Legacy conversion - first_layer_height moved from PrintObject setting to a Print setting, thus we are getting rid of the dependency
+            // of first_layer_height on PrintObject specific layer_height. Covert the first layer heigth to an absolute value.
+            first_layer_height->value   = first_layer_height->get_abs_value(layer_height->value);
+            first_layer_height->percent = false;
+        }
 }
 
 std::string Preset::remove_invalid_keys(DynamicPrintConfig &config, const DynamicPrintConfig &default_config)
@@ -392,7 +399,7 @@ void Preset::set_visible_from_appconfig(const AppConfig &app_config)
     } else if (type == TYPE_FILAMENT || type == TYPE_SLA_MATERIAL) {
     	const std::string &section_name = (type == TYPE_FILAMENT) ? AppConfig::SECTION_FILAMENTS : AppConfig::SECTION_MATERIALS;
     	if (app_config.has_section(section_name)) {
-    		// Check whether this profile is marked as "installed" in PrusaSlicer.ini, 
+    		// Check whether this profile is marked as "installed" in PrusaSlicer.ini,
     		// or whether a profile is marked as "installed", which this profile may have been renamed from.
 	    	const std::map<std::string, std::string> &installed = app_config.get_section(section_name);
 	    	auto has = [&installed](const std::string &name) {
@@ -409,12 +416,12 @@ void Preset::set_visible_from_appconfig(const AppConfig &app_config)
 const std::vector<std::string>& Preset::print_options()
 {
     static std::vector<std::string> s_opts {
-        "layer_height", "first_layer_height", "perimeters", "spiral_vase", "slice_closing_radius", 
+        "layer_height", "first_layer_height", "perimeters", "spiral_vase", "slice_closing_radius",
         "top_solid_layers", "top_solid_min_thickness", "bottom_solid_layers", "bottom_solid_min_thickness",
         "extra_perimeters", "ensure_vertical_shell_thickness", "avoid_crossing_perimeters", "thin_walls", "overhangs",
         "seam_position", "external_perimeters_first", "fill_density", "fill_pattern", "top_fill_pattern", "bottom_fill_pattern",
         "infill_every_layers", "infill_only_where_needed", "solid_infill_every_layers", "fill_angle", "bridge_angle",
-        "solid_infill_below_area", "only_retract_when_crossing_perimeters", "infill_first", 
+        "solid_infill_below_area", "only_retract_when_crossing_perimeters", "infill_first",
     	"ironing", "ironing_type", "ironing_flowrate", "ironing_speed", "ironing_spacing",
         "max_print_speed", "max_volumetric_speed", "avoid_crossing_perimeters_max_detour",
         "fuzzy_skin", "fuzzy_skin_thickness", "fuzzy_skin_point_dist",
@@ -426,17 +433,19 @@ const std::vector<std::string>& Preset::print_options()
         "bridge_speed", "gap_fill_speed", "gap_fill_enabled", "travel_speed", "first_layer_speed", "perimeter_acceleration", "infill_acceleration",
         "bridge_acceleration", "first_layer_acceleration", "default_acceleration", "skirts", "skirt_distance", "skirt_height", "draft_shield",
         "min_skirt_length", "brim_width", "brim_offset", "brim_type", "support_material", "support_material_auto", "support_material_threshold", "support_material_enforce_layers",
-        "raft_layers", "support_material_pattern", "support_material_with_sheath", "support_material_spacing",
-        "support_material_synchronize_layers", "support_material_angle", "support_material_interface_layers",
-        "support_material_interface_spacing", "support_material_interface_contact_loops", "support_material_contact_distance",
-        "support_material_buildplate_only", "dont_support_bridges", "notes", "complete_objects", "extruder_clearance_radius",
+        "raft_layers", "raft_first_layer_density", "raft_first_layer_expansion", "raft_contact_distance", "raft_expansion",
+        "support_material_pattern", "support_material_with_sheath", "support_material_spacing", "support_material_closing_radius", "support_material_style",
+        "support_material_synchronize_layers", "support_material_angle", "support_material_interface_layers", "support_material_bottom_interface_layers",
+        "support_material_interface_pattern", "support_material_interface_spacing", "support_material_interface_contact_loops", 
+        "support_material_contact_distance", "support_material_bottom_contact_distance",
+        "support_material_buildplate_only", "dont_support_bridges", "thick_bridges", "notes", "complete_objects", "extruder_clearance_radius",
         "extruder_clearance_height", "gcode_comments", "gcode_label_objects", "output_filename_format", "post_process", "perimeter_extruder",
         "infill_extruder", "solid_infill_extruder", "support_material_extruder", "support_material_interface_extruder",
         "ooze_prevention", "standby_temperature_delta", "interface_shells", "extrusion_width", "first_layer_extrusion_width",
         "perimeter_extrusion_width", "external_perimeter_extrusion_width", "infill_extrusion_width", "solid_infill_extrusion_width",
         "top_infill_extrusion_width", "support_material_extrusion_width", "infill_overlap", "infill_anchor", "infill_anchor_max", "bridge_flow_ratio", "clip_multipart_objects",
         "elefant_foot_compensation", "xy_size_compensation", "threads", "resolution", "wipe_tower", "wipe_tower_x", "wipe_tower_y",
-        "wipe_tower_width", "wipe_tower_rotation_angle", "wipe_tower_bridging", "single_extruder_multi_material_priming",
+        "wipe_tower_width", "wipe_tower_rotation_angle", "wipe_tower_brim_width", "wipe_tower_bridging", "single_extruder_multi_material_priming",
         "wipe_tower_no_sparse_layers", "compatible_printers", "compatible_printers_condition", "inherits"
     };
     return s_opts;
@@ -466,7 +475,7 @@ const std::vector<std::string>& Preset::machine_limits_options()
     static std::vector<std::string> s_opts;
     if (s_opts.empty()) {
         s_opts = {
-			"machine_max_acceleration_extruding", "machine_max_acceleration_retracting",
+            "machine_max_acceleration_extruding", "machine_max_acceleration_retracting", "machine_max_acceleration_travel",
 		    "machine_max_acceleration_x", "machine_max_acceleration_y", "machine_max_acceleration_z", "machine_max_acceleration_e",
 		    "machine_max_feedrate_x", "machine_max_feedrate_y", "machine_max_feedrate_z", "machine_max_feedrate_e",
 		    "machine_min_extruding_rate", "machine_min_travel_rate",
@@ -491,7 +500,7 @@ const std::vector<std::string>& Preset::printer_options()
             "between_objects_gcode", "printer_vendor", "printer_model", "printer_variant", "printer_notes", "cooling_tube_retraction",
             "cooling_tube_length", "high_current_on_filament_swap", "parking_pos_retraction", "extra_loading_move", "max_print_height",
             "default_print_profile", "inherits",
-            "remaining_times", "silent_mode", 
+            "remaining_times", "silent_mode",
             "machine_limits_usage", "thumbnails"
         };
         s_opts.insert(s_opts.end(), Preset::machine_limits_options().begin(), Preset::machine_limits_options().end());
@@ -652,7 +661,7 @@ void PresetCollection::add_default_preset(const std::vector<std::string> &keys, 
 // Throws an exception on error.
 void PresetCollection::load_presets(const std::string &dir_path, const std::string &subdir)
 {
-    // Don't use boost::filesystem::canonical() on Windows, it is broken in regard to reparse points, 
+    // Don't use boost::filesystem::canonical() on Windows, it is broken in regard to reparse points,
     // see https://github.com/prusa3d/PrusaSlicer/issues/732
     boost::filesystem::path dir = boost::filesystem::absolute(boost::filesystem::path(dir_path) / subdir).make_preferred();
     m_dir_path = dir.string();
@@ -976,7 +985,7 @@ const Preset* PresetCollection::get_selected_preset_parent() const
 	    // Resolve the "renamed_from" field.
     	assert(! inherits.empty());
     	auto it = this->find_preset_renamed(inherits);
-		if (it != m_presets.end()) 
+		if (it != m_presets.end())
 			preset = &(*it);
     }
     return (preset == nullptr/* || preset->is_default*/ || preset->is_external) ? nullptr : preset;
@@ -991,17 +1000,17 @@ const Preset* PresetCollection::get_preset_parent(const Preset& child) const
     const Preset* preset = this->find_preset(inherits, false);
     if (preset == nullptr) {
     	auto it = this->find_preset_renamed(inherits);
-		if (it != m_presets.end()) 
+		if (it != m_presets.end())
 			preset = &(*it);
     }
-    return 
+    return
          // not found
-        (preset == nullptr/* || preset->is_default */|| 
+        (preset == nullptr/* || preset->is_default */||
          // this should not happen, user profile should not derive from an external profile
          preset->is_external ||
          // this should not happen, however people are creative, see GH #4996
-         preset == &child) ? 
-            nullptr : 
+         preset == &child) ?
+            nullptr :
             preset;
 }
 
@@ -1028,7 +1037,7 @@ const std::string& PresetCollection::get_preset_name_by_alias(const std::string&
 		// Continue over all profile names with the same alias.
 		it != m_map_alias_to_profile_name.end() && it->first == alias; ++ it)
 		if (auto it_preset = this->find_preset_internal(it->second);
-			it_preset != m_presets.end() && it_preset->name == it->second && 
+			it_preset != m_presets.end() && it_preset->name == it->second &&
             it_preset->is_visible && (it_preset->is_compatible || size_t(it_preset - m_presets.begin()) == m_idx_selected))
 	        return it_preset->name;
     return alias;
@@ -1098,7 +1107,7 @@ size_t PresetCollection::update_compatible_internal(const PresetWithVendorProfil
         some_compatible |= preset_edited.is_compatible;
 	    if (active_print != nullptr)
 	        preset_edited.is_compatible &= is_compatible_with_print(this_preset_with_vendor_profile, *active_print, active_printer);
-        if (! preset_edited.is_compatible && selected && 
+        if (! preset_edited.is_compatible && selected &&
         	(unselect_if_incompatible == PresetSelectCompatibleType::Always || (unselect_if_incompatible == PresetSelectCompatibleType::OnlyIfWasCompatible && was_compatible)))
             m_idx_selected = size_t(-1);
         if (selected)
@@ -1392,9 +1401,8 @@ const std::vector<std::string>& PhysicalPrinter::printer_options()
     static std::vector<std::string> s_opts;
     if (s_opts.empty()) {
         s_opts = {
-            "preset_name",
+            "preset_names",
             "printer_technology",
-//            "printer_model",
             "host_type",
             "print_host",
             "printhost_apikey",
@@ -1439,25 +1447,24 @@ const std::set<std::string>& PhysicalPrinter::get_preset_names() const
     return preset_names;
 }
 
-bool PhysicalPrinter::has_empty_config() const 
+bool PhysicalPrinter::has_empty_config() const
 {
-    return  config.opt_string("print_host"        ).empty() && 
-            config.opt_string("printhost_apikey"  ).empty() && 
-            config.opt_string("printhost_cafile"  ).empty() && 
+    return  config.opt_string("print_host"        ).empty() &&
+            config.opt_string("printhost_apikey"  ).empty() &&
+            config.opt_string("printhost_cafile"  ).empty() &&
             config.opt_string("printhost_port"    ).empty() &&
-            config.opt_string("printhost_user"    ).empty() && 
+            config.opt_string("printhost_user"    ).empty() &&
             config.opt_string("printhost_password").empty();
 }
 
 void PhysicalPrinter::update_preset_names_in_config()
 {
     if (!preset_names.empty()) {
-        std::string name;
-        for (auto el : preset_names)
-            name += el + ";";
-        name.pop_back();
-        config.set_key_value("preset_name", new ConfigOptionString(name));
-    }    
+        std::vector<std::string>& values = config.option<ConfigOptionStrings>("preset_names")->values;
+        values.clear();
+        for (auto preset : preset_names)
+            values.push_back(preset);
+    }
 }
 
 void PhysicalPrinter::save(const std::string& file_name_from, const std::string& file_name_to)
@@ -1481,14 +1488,13 @@ void PhysicalPrinter::update_from_config(const DynamicPrintConfig& new_config)
 {
     config.apply_only(new_config, printer_options(), false);
 
-    std::string str = config.opt_string("preset_name");
-    std::set<std::string> values{};
-    if (!str.empty()) {
-        boost::split(values, str, boost::is_any_of(";"));
+    const std::vector<std::string>& values = config.option<ConfigOptionStrings>("preset_names")->values;
+
+    if (values.empty())
+        preset_names.clear();
+    else
         for (const std::string& val : values)
             preset_names.emplace(val);
-    }
-    preset_names = values;
 }
 
 void PhysicalPrinter::reset_presets()
@@ -1506,7 +1512,7 @@ bool PhysicalPrinter::delete_preset(const std::string& preset_name)
     return preset_names.erase(preset_name) > 0;
 }
 
-PhysicalPrinter::PhysicalPrinter(const std::string& name, const DynamicPrintConfig& default_config) : 
+PhysicalPrinter::PhysicalPrinter(const std::string& name, const DynamicPrintConfig& default_config) :
     name(name), config(default_config)
 {
     update_from_config(config);
@@ -1563,7 +1569,7 @@ PhysicalPrinterCollection::PhysicalPrinterCollection( const std::vector<std::str
 // Throws an exception on error.
 void PhysicalPrinterCollection::load_printers(const std::string& dir_path, const std::string& subdir)
 {
-    // Don't use boost::filesystem::canonical() on Windows, it is broken in regard to reparse points, 
+    // Don't use boost::filesystem::canonical() on Windows, it is broken in regard to reparse points,
     // see https://github.com/prusa3d/PrusaSlicer/issues/732
     boost::filesystem::path dir = boost::filesystem::absolute(boost::filesystem::path(dir_path) / subdir).make_preferred();
     m_dir_path = dir.string();
@@ -1715,7 +1721,7 @@ PhysicalPrinter* PhysicalPrinterCollection::find_printer_with_same_config(const 
         for (const char *opt : legacy_print_host_options)
             if (is_equal && printer.config.opt_string(opt) != config.opt_string(opt))
                 is_equal = false;
-                
+
         if (is_equal)
             return find_printer(printer.name);
     }
@@ -1731,7 +1737,7 @@ std::string PhysicalPrinterCollection::path_from_name(const std::string& new_nam
 
 void PhysicalPrinterCollection::save_printer(PhysicalPrinter& edited_printer, const std::string& renamed_from/* = ""*/)
 {
-    // controll and update preset_names in edited_printer config 
+    // controll and update preset_names in edited_printer config
     edited_printer.update_preset_names_in_config();
 
     std::string name = renamed_from.empty() ? edited_printer.name : renamed_from;
@@ -1816,14 +1822,14 @@ bool PhysicalPrinterCollection::delete_preset_from_printers( const std::string& 
     return true;
 }
 
-// Get list of printers which have more than one preset and "preset_name" preset is one of them
+// Get list of printers which have more than one preset and "preset_names" preset is one of them
 std::vector<std::string> PhysicalPrinterCollection::get_printers_with_preset(const std::string& preset_name)
 {
     std::vector<std::string> printers;
 
     for (auto printer : m_printers) {
         if (printer.preset_names.size() == 1)
-            continue;        
+            continue;
         if (printer.preset_names.find(preset_name) != printer.preset_names.end())
             printers.emplace_back(printer.name);
     }
@@ -1831,7 +1837,7 @@ std::vector<std::string> PhysicalPrinterCollection::get_printers_with_preset(con
     return printers;
 }
 
-// Get list of printers which has only "preset_name" preset
+// Get list of printers which has only "preset_names" preset
 std::vector<std::string> PhysicalPrinterCollection::get_printers_with_only_preset(const std::string& preset_name)
 {
     std::vector<std::string> printers;
@@ -1893,7 +1899,7 @@ void PhysicalPrinterCollection::unselect_printer()
 
 bool PhysicalPrinterCollection::is_selected(PhysicalPrinterCollection::ConstIterator it, const std::string& preset_name) const
 {
-    return  m_idx_selected      == size_t(it - m_printers.begin()) && 
+    return  m_idx_selected      == size_t(it - m_printers.begin()) &&
             m_selected_preset   == preset_name;
 }
 
