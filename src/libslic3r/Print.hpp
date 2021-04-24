@@ -65,7 +65,7 @@ public:
     const PrintRegionConfig&    config() const { return m_config; }
 	// 1-based extruder identifier for this region and role.
 	unsigned int 				extruder(FlowRole role) const;
-    Flow                        flow(FlowRole role, double layer_height, bool bridge, bool first_layer, double width, const PrintObject &object) const;
+    Flow                        flow(const PrintObject &object, FlowRole role, double layer_height, bool first_layer = false) const;
     // Average diameter of nozzles participating on extruding this region.
     coordf_t                    nozzle_dmr_avg(const PrintConfig &print_config) const;
     // Average diameter of nozzles participating on extruding this region.
@@ -168,12 +168,15 @@ public:
 
     // Bounding box is used to align the object infill patterns, and to calculate attractor for the rear seam.
     // The bounding box may not be quite snug.
-    BoundingBox             bounding_box()    const { return BoundingBox(Point(- m_size.x() / 2, - m_size.y() / 2), Point(m_size.x() / 2, m_size.y() / 2)); }
+    BoundingBox                  bounding_box() const   { return BoundingBox(Point(- m_size.x() / 2, - m_size.y() / 2), Point(m_size.x() / 2, m_size.y() / 2)); }
     // Height is used for slicing, for sorting the objects by height for sequential printing and for checking vertical clearence in sequential print mode.
     // The height is snug.
-    coord_t 				height() 		  const { return m_size.z(); }
+    coord_t 				     height() const         { return m_size.z(); }
     // Centering offset of the sliced mesh from the scaled and rotated mesh of the model.
-    const Point& 			center_offset()   const { return m_center_offset; }
+    const Point& 			     center_offset() const  { return m_center_offset; }
+
+    bool                         has_brim() const       { return this->config().brim_type != btNoBrim && this->config().brim_width.value > 0.; }
+
 
     // adds region_id, too, if necessary
     void add_region_volume(unsigned int region_id, int volume_id, const t_layer_height_range &layer_range) {
@@ -199,14 +202,14 @@ public:
     const Layer*	get_first_layer_bellow_printz(coordf_t print_z, coordf_t epsilon) const;
 
     // print_z: top of the layer; slice_z: center of the layer.
-    Layer* add_layer(int id, coordf_t height, coordf_t print_z, coordf_t slice_z);
+    Layer*          add_layer(int id, coordf_t height, coordf_t print_z, coordf_t slice_z);
 
-    size_t support_layer_count() const { return m_support_layers.size(); }
-    void clear_support_layers();
-    SupportLayer* get_support_layer(int idx) { return m_support_layers[idx]; }
-    SupportLayer* add_support_layer(int id, coordf_t height, coordf_t print_z);
+    size_t          support_layer_count() const { return m_support_layers.size(); }
+    void            clear_support_layers();
+    SupportLayer*   get_support_layer(int idx) { return m_support_layers[idx]; }
+    SupportLayer*   add_support_layer(int id, coordf_t height, coordf_t print_z);
     SupportLayerPtrs::iterator insert_support_layer(SupportLayerPtrs::iterator pos, size_t id, coordf_t height, coordf_t print_z, coordf_t slice_z);
-    void delete_support_layer(int idx);
+    void            delete_support_layer(int idx);
     
     // Initialize the layer_height_profile from the model_object's layer_height_profile, from model_object's layer height table, or from slicing parameters.
     // Returns true, if the layer_height_profile was changed.
@@ -218,6 +221,10 @@ public:
     // (layer height, first layer height, raft settings, print nozzle diameter etc).
     const SlicingParameters&    slicing_parameters() const { return m_slicing_params; }
     static SlicingParameters    slicing_parameters(const DynamicPrintConfig &full_config, const ModelObject &model_object, float object_max_z);
+
+    bool                        has_support()           const { return m_config.support_material || m_config.support_material_enforce_layers > 0; }
+    bool                        has_raft()              const { return m_config.raft_layers > 0; }
+    bool                        has_support_material()  const { return this->has_support() || this->has_raft(); }
 
     // returns 0-based indices of extruders used to print the object (without brim, support and other helper extrusions)
     std::vector<unsigned int>   object_extruders() const;
@@ -267,7 +274,7 @@ private:
     void _slice(const std::vector<coordf_t> &layer_height_profile);
     std::string _fix_slicing_errors();
     void simplify_slices(double distance);
-    bool has_support_material() const;
+    // Has any support (not counting the raft).
     void detect_surfaces_type();
     void process_external_surfaces();
     void discover_vertical_shells();
@@ -437,7 +444,7 @@ public:
     bool                has_brim() const;
 
     // Returns an empty string if valid, otherwise returns an error message.
-    std::string         validate() const override;
+    std::string         validate(std::string* warning = nullptr) const override;
     double              skirt_first_layer_height() const;
     Flow                brim_flow() const;
     Flow                skirt_flow() const;
@@ -486,7 +493,7 @@ public:
 
     // Wipe tower support.
     bool                        has_wipe_tower() const;
-    const WipeTowerData&        wipe_tower_data(size_t extruders_cnt = 0, double first_layer_height = 0., double nozzle_diameter = 0.) const;
+    const WipeTowerData&        wipe_tower_data(size_t extruders_cnt = 0) const;
     const ToolOrdering& 		tool_ordering() const { return m_tool_ordering; }
 
 	std::string                 output_filename(const std::string &filename_base = std::string()) const override;

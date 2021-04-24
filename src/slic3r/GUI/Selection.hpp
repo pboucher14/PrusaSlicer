@@ -206,14 +206,14 @@ private:
     IndicesList m_list;
     Cache m_cache;
     Clipboard m_clipboard;
-    mutable BoundingBoxf3 m_bounding_box;
-    mutable bool m_bounding_box_dirty;
+    BoundingBoxf3 m_bounding_box;
+    bool m_bounding_box_dirty;
     // Bounding box of a selection, with no instance scaling applied. This bounding box
     // is useful for absolute scaling of tilted objects in world coordinate space.
-    mutable BoundingBoxf3 m_unscaled_instance_bounding_box;
-    mutable bool m_unscaled_instance_bounding_box_dirty;
-    mutable BoundingBoxf3 m_scaled_instance_bounding_box;
-    mutable bool m_scaled_instance_bounding_box_dirty;
+    BoundingBoxf3 m_unscaled_instance_bounding_box;
+    bool m_unscaled_instance_bounding_box_dirty;
+    BoundingBoxf3 m_scaled_instance_bounding_box;
+    bool m_scaled_instance_bounding_box_dirty;
 
 #if ENABLE_RENDER_SELECTION_CENTER
     GLUquadricObj* m_quadric;
@@ -222,7 +222,7 @@ private:
     GLModel m_arrow;
     GLModel m_curved_arrow;
 
-    mutable float m_scale_factor;
+    float m_scale_factor;
 
 public:
     Selection();
@@ -286,6 +286,7 @@ public:
     bool is_from_single_instance() const { return get_instance_idx() != -1; }
     bool is_from_single_object() const;
     bool is_sla_compliant() const;
+    bool is_instance_mode() const { return m_mode == Instance; }
 
     bool contains_volume(unsigned int volume_idx) const { return m_list.find(volume_idx) != m_list.end(); }
     // returns true if the selection contains all the given indices
@@ -354,8 +355,6 @@ public:
     std::vector<unsigned int> get_missing_volume_idxs_from(const std::vector<unsigned int>& volume_idxs) const;
     // returns the list of idxs of the volumes contained in the given list but not in the selection
     std::vector<unsigned int> get_unselected_volume_idxs_from(const std::vector<unsigned int>& volume_idxs) const;
-
-    void toggle_instance_printable_state();
 
 private:
     void update_valid();

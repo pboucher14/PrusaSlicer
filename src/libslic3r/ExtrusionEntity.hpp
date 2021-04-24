@@ -7,6 +7,7 @@
 
 #include <assert.h>
 #include <string_view>
+#include <numeric>
 
 namespace Slic3r {
 
@@ -102,6 +103,7 @@ public:
     virtual double min_mm3_per_mm() const = 0;
     virtual Polyline as_polyline() const = 0;
     virtual void   collect_polylines(Polylines &dst) const = 0;
+    virtual void   collect_points(Points &dst) const = 0;
     virtual Polylines as_polylines() const { Polylines dst; this->collect_polylines(dst); return dst; }
     virtual double length() const = 0;
     virtual double total_volume() const = 0;
@@ -167,6 +169,7 @@ public:
     double min_mm3_per_mm() const override { return this->mm3_per_mm; }
     Polyline as_polyline() const override { return this->polyline; }
     void   collect_polylines(Polylines &dst) const override { if (! this->polyline.empty()) dst.emplace_back(this->polyline); }
+    void   collect_points(Points &dst) const override { append(dst, this->polyline.points); }
     double total_volume() const override { return mm3_per_mm * unscale<double>(length()); }
 
 private:
@@ -200,6 +203,8 @@ public:
     void reverse() override;
     const Point& first_point() const override { return this->paths.front().polyline.points.front(); }
     const Point& last_point() const override { return this->paths.back().polyline.points.back(); }
+    size_t size() const { return this->paths.size(); }
+    bool empty() const { return this->paths.empty(); }
     double length() const override;
     ExtrusionRole role() const override { return this->paths.empty() ? erNone : this->paths.front().role(); }
     // Produce a list of 2D polygons covered by the extruded paths, offsetted by the extrusion width.
@@ -217,6 +222,12 @@ public:
     double min_mm3_per_mm() const override;
     Polyline as_polyline() const override;
     void   collect_polylines(Polylines &dst) const override { Polyline pl = this->as_polyline(); if (! pl.empty()) dst.emplace_back(std::move(pl)); }
+    void   collect_points(Points &dst) const override { 
+        size_t n = std::accumulate(paths.begin(), paths.end(), 0, [](const size_t n, const ExtrusionPath &p){ return n + p.polyline.size(); });
+        dst.reserve(dst.size() + n);
+        for (const ExtrusionPath &p : this->paths)
+            append(dst, p.polyline.points);
+    }
     double total_volume() const override { double volume =0.; for (const auto& path : paths) volume += path.total_volume(); return volume; }
 };
 
@@ -268,6 +279,12 @@ public:
     double min_mm3_per_mm() const override;
     Polyline as_polyline() const override { return this->polygon().split_at_first_point(); }
     void   collect_polylines(Polylines &dst) const override { Polyline pl = this->as_polyline(); if (! pl.empty()) dst.emplace_back(std::move(pl)); }
+    void   collect_points(Points &dst) const override { 
+        size_t n = std::accumulate(paths.begin(), paths.end(), 0, [](const size_t n, const ExtrusionPath &p){ return n + p.polyline.size(); });
+        dst.reserve(dst.size() + n);
+        for (const ExtrusionPath &p : this->paths)
+            append(dst, p.polyline.points);
+    }
     double total_volume() const override { double volume =0.; for (const auto& path : paths) volume += path.total_volume(); return volume; }
 
     //static inline std::string role_to_string(ExtrusionLoopRole role);

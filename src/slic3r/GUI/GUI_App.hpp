@@ -43,6 +43,7 @@ class ObjectSettings;
 class ObjectList;
 class ObjectLayers;
 class Plater;
+class NotificationManager;
 struct GUI_InitParams;
 
 
@@ -226,14 +227,14 @@ public:
     void            MacOpenFiles(const wxArrayString &fileNames) override;
 #endif /* __APPLE */
 
-    Sidebar&            sidebar();
-    ObjectManipulation* obj_manipul();
-    ObjectSettings*     obj_settings();
-    ObjectList*         obj_list();
-    ObjectLayers*       obj_layers();
-    Plater*             plater();
-    Model&      		model();
-
+    Sidebar&             sidebar();
+    ObjectManipulation*  obj_manipul();
+    ObjectSettings*      obj_settings();
+    ObjectList*          obj_list();
+    ObjectLayers*        obj_layers();
+    Plater*              plater();
+    Model&      		 model();
+    NotificationManager* notification_manager();
 
     // Parameters extracted from the command line to be passed to GUI after initialization.
     const GUI_InitParams* init_params { nullptr };
@@ -279,13 +280,11 @@ public:
     bool is_gl_version_greater_or_equal_to(unsigned int major, unsigned int minor) const { return m_opengl_mgr.get_gl_info().is_version_greater_or_equal_to(major, minor); }
     bool is_glsl_version_greater_or_equal_to(unsigned int major, unsigned int minor) const { return m_opengl_mgr.get_gl_info().is_glsl_version_greater_or_equal_to(major, minor); }
 
-#if ENABLE_CUSTOMIZABLE_FILES_ASSOCIATION_ON_WIN
 #ifdef __WXMSW__
     void            associate_3mf_files();
     void            associate_stl_files();
     void            associate_gcode_files();
 #endif // __WXMSW__
-#endif // ENABLE_CUSTOMIZABLE_FILES_ASSOCIATION_ON_WIN
 
 private:
     bool            on_init_inner();
@@ -297,13 +296,6 @@ private:
 
     bool            config_wizard_startup();
 	void            check_updates(const bool verbose);
-
-#if !ENABLE_CUSTOMIZABLE_FILES_ASSOCIATION_ON_WIN
-#ifdef __WXMSW__
-    void            associate_3mf_files();
-    void            associate_gcode_files();
-#endif // __WXMSW__
-#endif // !ENABLE_CUSTOMIZABLE_FILES_ASSOCIATION_ON_WIN
 };
 
 DECLARE_APP(GUI_App)

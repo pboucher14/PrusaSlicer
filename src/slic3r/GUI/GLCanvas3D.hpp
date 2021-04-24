@@ -124,11 +124,7 @@ wxDECLARE_EVENT(EVT_GLCANVAS_MOUSE_DRAGGING_FINISHED, SimpleEvent);
 wxDECLARE_EVENT(EVT_GLCANVAS_UPDATE_BED_SHAPE, SimpleEvent);
 wxDECLARE_EVENT(EVT_GLCANVAS_TAB, SimpleEvent);
 wxDECLARE_EVENT(EVT_GLCANVAS_RESETGIZMOS, SimpleEvent);
-#if ENABLE_ARROW_KEYS_WITH_SLIDERS
 wxDECLARE_EVENT(EVT_GLCANVAS_MOVE_SLIDERS, wxKeyEvent);
-#else
-wxDECLARE_EVENT(EVT_GLCANVAS_MOVE_LAYERS_SLIDER, wxKeyEvent);
-#endif // ENABLE_ARROW_KEYS_WITH_SLIDERS
 wxDECLARE_EVENT(EVT_GLCANVAS_EDIT_COLOR_CHANGE, wxKeyEvent);
 wxDECLARE_EVENT(EVT_GLCANVAS_JUMP_TO, wxKeyEvent);
 wxDECLARE_EVENT(EVT_GLCANVAS_UNDO, SimpleEvent);
@@ -453,13 +449,13 @@ private:
     wxTimer m_timer;
     LayersEditing m_layers_editing;
     Mouse m_mouse;
-    mutable GLGizmosManager m_gizmos;
-    mutable GLToolbar m_main_toolbar;
-    mutable GLToolbar m_undoredo_toolbar;
+    GLGizmosManager m_gizmos;
+    GLToolbar m_main_toolbar;
+    GLToolbar m_undoredo_toolbar;
     ClippingPlane m_clipping_planes[2];
-    mutable ClippingPlane m_camera_clipping_plane;
+    ClippingPlane m_camera_clipping_plane;
     bool m_use_clipping_planes;
-    mutable SlaCap m_sla_caps[2];
+    SlaCap m_sla_caps[2];
     std::string m_sidebar_field;
     // when true renders an extra frame by not resetting m_dirty to false
     // see request_extra_frame()
@@ -467,7 +463,7 @@ private:
     int  m_extra_frame_requested_delayed { std::numeric_limits<int>::max() };
     bool m_event_handlers_bound{ false };
 
-    mutable GLVolumeCollection m_volumes;
+    GLVolumeCollection m_volumes;
     GCodeViewer m_gcode_viewer;
 
     RenderTimer m_render_timer;
@@ -482,7 +478,6 @@ private:
     bool m_dirty;
     bool m_initialized;
     bool m_apply_zoom_to_volumes_filter;
-    mutable std::vector<int> m_hover_volume_idxs;
     bool m_picking_enabled;
     bool m_moving_enabled;
     bool m_dynamic_background_enabled;
@@ -491,6 +486,7 @@ private:
     bool m_tab_down;
     ECursorType m_cursor_type;
     GLSelectionRectangle m_rectangle_selection;
+    std::vector<int> m_hover_volume_idxs;
 
     // Following variable is obsolete and it should be safe to remove it.
     // I just don't want to do it now before a release (Lukas Matena 24.3.2019)
@@ -508,13 +504,13 @@ private:
     RenderStats m_render_stats;
 #endif // ENABLE_RENDER_STATISTICS
 
-    mutable int m_imgui_undo_redo_hovered_pos{ -1 };
-    mutable int m_mouse_wheel {0};
+    int m_imgui_undo_redo_hovered_pos{ -1 };
+    int m_mouse_wheel{ 0 };
     int m_selected_extruder;
 
     Labels m_labels;
-    mutable Tooltip m_tooltip;
-    mutable bool m_tooltip_enabled{ true };
+    Tooltip m_tooltip;
+    bool m_tooltip_enabled{ true };
     Slope m_slope;
 
     ArrangeSettings m_arrange_settings_fff, m_arrange_settings_sla,
@@ -523,8 +519,7 @@ private:
     PrinterTechnology current_printer_technology() const;
 
     template<class Self>
-    static auto & get_arrange_settings(Self *self)
-    {
+    static auto & get_arrange_settings(Self *self) {
         PrinterTechnology ptech = self->current_printer_technology();
 
         auto *ptr = &self->m_arrange_settings_fff;
@@ -533,11 +528,10 @@ private:
             ptr = &self->m_arrange_settings_sla;
         } else if (ptech == ptFFF) {
             auto co_opt = self->m_config->template option<ConfigOptionBool>("complete_objects");
-            if (co_opt && co_opt->value) {
+            if (co_opt && co_opt->value)
                 ptr = &self->m_arrange_settings_fff_seq_print;
-            } else {
+            else
                 ptr = &self->m_arrange_settings_fff;
-            }
         }
 
         return *ptr;
@@ -670,9 +664,7 @@ public:
 
     void load_gcode_preview(const GCodeProcessor::Result& gcode_result);
     void refresh_gcode_preview(const GCodeProcessor::Result& gcode_result, const std::vector<std::string>& str_tool_colors);
-#if ENABLE_RENDER_PATH_REFRESH_AFTER_OPTIONS_CHANGE
     void refresh_gcode_preview_render_paths();
-#endif // ENABLE_RENDER_PATH_REFRESH_AFTER_OPTIONS_CHANGE
     void set_gcode_view_preview_type(GCodeViewer::EViewType type) { return m_gcode_viewer.set_view_type(type); }
     GCodeViewer::EViewType get_gcode_view_preview_type() const { return m_gcode_viewer.get_view_type(); }
     void load_sla_preview();
@@ -721,10 +713,9 @@ public:
         double m_rotation = 0.;
         BoundingBoxf m_bb;
         friend class GLCanvas3D;
-    public:
-        
-        inline operator bool() const
-        {
+
+    public:        
+        inline operator bool() const {
             return !std::isnan(m_pos.x()) && !std::isnan(m_pos.y());
         }
         
@@ -749,7 +740,8 @@ public:
     void msw_rescale();
 
     void request_extra_frame() { m_extra_frame_requested = true; }
-    void request_extra_frame_delayed(int miliseconds);
+    
+    void schedule_extra_frame(int miliseconds);
 
     int get_main_toolbar_item_id(const std::string& name) const { return m_main_toolbar.get_item_id(name); }
     void force_main_toolbar_left_action(int item_id) { m_main_toolbar.force_left_action(item_id, *this); }
@@ -768,8 +760,7 @@ public:
     void use_slope(bool use) { m_slope.use(use); }
     void set_slope_normal_angle(float angle_in_deg) { m_slope.set_normal_angle(angle_in_deg); }
 
-    ArrangeSettings get_arrange_settings() const
-    {
+    ArrangeSettings get_arrange_settings() const {
         const ArrangeSettings &settings = get_arrange_settings(this);
         ArrangeSettings ret = settings;
         if (&settings == &m_arrange_settings_fff_seq_print) {

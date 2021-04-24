@@ -1,6 +1,7 @@
 #include "PrintHostDialogs.hpp"
 
 #include <algorithm>
+#include <iomanip>
 
 #include <wx/frame.h>
 #include <wx/progdlg.h>
@@ -12,15 +13,20 @@
 #include <wx/dataview.h>
 #include <wx/wupdlock.h>
 #include <wx/debug.h>
+#include <wx/msgdlg.h>
+
+#include <boost/log/trivial.hpp>
+#include <boost/filesystem.hpp>
+#include <boost/nowide/convert.hpp>
 
 #include "GUI.hpp"
 #include "GUI_App.hpp"
 #include "MsgDialog.hpp"
 #include "I18N.hpp"
 #include "../Utils/PrintHost.hpp"
-#include "wxExtensions.hpp"
 #include "MainFrame.hpp"
 #include "libslic3r/AppConfig.hpp"
+#include "NotificationManager.hpp"
 
 namespace fs = boost::filesystem;
 
@@ -63,8 +69,10 @@ PrintHostSendDialog::PrintHostSendDialog(const fs::path &path, bool can_start_pr
             combo_groups->SetValue(recent_group);
     }
 
-    btn_sizer->Add(CreateStdDialogButtonSizer(wxOK | wxCANCEL));
-
+    auto* szr = CreateStdDialogButtonSizer(wxOK | wxCANCEL);
+    auto* btn_ok = szr->GetAffirmativeButton();
+    btn_sizer->Add(szr);
+    
     wxString recent_path = from_u8(app_config->get("recent", CONFIG_KEY_PATH));
     if (recent_path.Length() > 0 && recent_path[recent_path.Length() - 1] != '/') {
         recent_path += '/';
@@ -77,6 +85,20 @@ PrintHostSendDialog::PrintHostSendDialog(const fs::path &path, bool can_start_pr
     txt_filename->SetValue(recent_path);
     txt_filename->SetFocus();
     
+    wxString suffix = recent_path.substr(recent_path.find_last_of('.'));
+
+    btn_ok->Bind(wxEVT_BUTTON, [this, suffix](wxCommandEvent&) {
+        wxString path = txt_filename->GetValue();
+        // .gcode suffix control
+        if (!path.Lower().EndsWith(suffix.Lower()))
+        {
+            wxMessageDialog msg_wingow(this, wxString::Format(_L("Upload filename doesn't end with \"%s\". Do you wish to continue?"), suffix), wxString(SLIC3R_APP_NAME), wxYES | wxNO);
+            if (msg_wingow.ShowModal() == wxID_NO)
+                return;
+        }
+        EndDialog(wxID_OK);
+        });
+
     Fit();
     CenterOnParent();
 
@@ -182,15 +204,24 @@ PrintHostQueueDialog::PrintHostQueueDialog(wxWindow *parent)
 
     auto *topsizer = new wxBoxSizer(wxVERTICAL);
 
+    std::vector<int> widths;
+    widths.reserve(6);
+    if (!load_user_data(UDT_COLS, widths)) {
+        widths.clear();
+        for (size_t i = 0; i < 6; i++)
+            widths.push_back(-1);
+    }
+
     job_list = new wxDataViewListCtrl(this, wxID_ANY);
     // Note: Keep these in sync with Column
-    job_list->AppendTextColumn(_L("ID"), wxDATAVIEW_CELL_INERT);
-    job_list->AppendProgressColumn(_L("Progress"), wxDATAVIEW_CELL_INERT);
-    job_list->AppendTextColumn(_L("Status"), wxDATAVIEW_CELL_INERT);
-    job_list->AppendTextColumn(_L("Host"), wxDATAVIEW_CELL_INERT);
-    job_list->AppendTextColumn(_L("Filename"), wxDATAVIEW_CELL_INERT);
+    job_list->AppendTextColumn(_L("ID"), wxDATAVIEW_CELL_INERT, widths[0], wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE | wxDATAVIEW_COL_SORTABLE);
+    job_list->AppendProgressColumn(_L("Progress"), wxDATAVIEW_CELL_INERT, widths[1], wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE | wxDATAVIEW_COL_SORTABLE);
+    job_list->AppendTextColumn(_L("Status"), wxDATAVIEW_CELL_INERT, widths[2], wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE | wxDATAVIEW_COL_SORTABLE);
+    job_list->AppendTextColumn(_L("Host"), wxDATAVIEW_CELL_INERT, widths[3], wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE | wxDATAVIEW_COL_SORTABLE);
+    job_list->AppendTextColumn(_CTX_utf8(L_CONTEXT("Size", "OfFile"), "OfFile"), wxDATAVIEW_CELL_INERT, widths[4], wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE | wxDATAVIEW_COL_SORTABLE);
+    job_list->AppendTextColumn(_L("Filename"), wxDATAVIEW_CELL_INERT, widths[5], wxALIGN_LEFT, wxDATAVIEW_COL_RESIZABLE | wxDATAVIEW_COL_SORTABLE);
     job_list->AppendTextColumn(_L("Error Message"), wxDATAVIEW_CELL_INERT, -1, wxALIGN_CENTER, wxDATAVIEW_COL_HIDDEN);
-
+ 
     auto *btnsizer = new wxBoxSizer(wxHORIZONTAL);
     btn_cancel = new wxButton(this, wxID_DELETE, _L("Cancel selected"));
     btn_cancel->Disable();
@@ -207,7 +238,21 @@ PrintHostQueueDialog::PrintHostQueueDialog(wxWindow *parent)
     topsizer->Add(btnsizer, 0, wxEXPAND);
     SetSizer(topsizer);
 
-    SetSize(wxSize(HEIGHT * em, WIDTH * em));
+    std::vector<int> size;
+    SetSize(load_user_data(UDT_SIZE, size) ? wxSize(size[0] * em, size[1] * em) : wxSize(HEIGHT * em, WIDTH * em));
+
+    Bind(wxEVT_SIZE, [this](wxSizeEvent& evt) {
+        OnSize(evt); 
+        save_user_data(UDT_SIZE | UDT_POSITION | UDT_COLS);
+     });
+    
+    std::vector<int> pos;
+    if (load_user_data(UDT_POSITION, pos))
+        SetPosition(wxPoint(pos[0], pos[1]));
+
+    Bind(wxEVT_MOVE, [this](wxMoveEvent& evt) {
+        save_user_data(UDT_SIZE | UDT_POSITION | UDT_COLS);
+    });
 
     job_list->Bind(wxEVT_DATAVIEW_SELECTION_CHANGED, [this](wxDataViewEvent&) { on_list_select(); });
 
@@ -217,7 +262,6 @@ PrintHostQueueDialog::PrintHostQueueDialog(wxWindow *parent)
 
         const JobState state = get_state(selected);
         if (state < ST_ERROR) {
-            // TODO: cancel
             GUI::wxGetApp().printhost_job_queue().cancel(selected);
         }
     });
@@ -238,11 +282,23 @@ void PrintHostQueueDialog::append_job(const PrintHostJob &job)
     fields.push_back(wxVariant(0));
     fields.push_back(wxVariant(_L("Enqueued")));
     fields.push_back(wxVariant(job.printhost->get_host()));
+    boost::system::error_code ec;
+    boost::uintmax_t size_i = boost::filesystem::file_size(job.upload_data.source_path, ec);
+    std::stringstream stream;
+    if (ec) {
+        stream << "unknown";
+        size_i = 0;
+        BOOST_LOG_TRIVIAL(error) << ec.message();
+    } else 
+        stream << std::fixed << std::setprecision(2) << ((float)size_i / 1024 / 1024) << "MB";
+    fields.push_back(wxVariant(stream.str()));
     fields.push_back(wxVariant(job.upload_data.upload_path.string()));
     fields.push_back(wxVariant(""));
     job_list->AppendItem(fields, static_cast<wxUIntPtr>(ST_NEW));
     // Both strings are UTF-8 encoded.
     upload_names.emplace_back(job.printhost->get_host(), job.upload_data.upload_path.string());
+
+    wxGetApp().notification_manager()->push_upload_job_notification(job_list->GetItemCount(), (float)size_i / 1024 / 1024, job.upload_data.upload_path.string(), job.printhost->get_host());
 }
 
 void PrintHostQueueDialog::on_dpi_changed(const wxRect &suggested_rect)
@@ -255,6 +311,8 @@ void PrintHostQueueDialog::on_dpi_changed(const wxRect &suggested_rect)
 
     Fit();
     Refresh();
+
+    save_user_data(UDT_SIZE | UDT_POSITION | UDT_COLS);
 }
 
 PrintHostQueueDialog::JobState PrintHostQueueDialog::get_state(int idx)
@@ -276,6 +334,8 @@ void PrintHostQueueDialog::set_state(int idx, JobState state)
         case ST_CANCELLED:  job_list->SetValue(_L("Cancelled"), idx, COL_STATUS); break;
         case ST_COMPLETED:  job_list->SetValue(_L("Completed"), idx, COL_STATUS); break;
     }
+    // This might be ambigous call, but user data needs to be saved time to time
+    save_user_data(UDT_SIZE | UDT_POSITION | UDT_COLS);
 }
 
 void PrintHostQueueDialog::on_list_select()
@@ -304,6 +364,14 @@ void PrintHostQueueDialog::on_progress(Event &evt)
     }
 
     on_list_select();
+
+    if (evt.progress > 0)
+    {
+        wxVariant nm, hst;
+        job_list->GetValue(nm, evt.job_id, COL_FILENAME);
+        job_list->GetValue(hst, evt.job_id, COL_HOST);
+        wxGetApp().notification_manager()->set_upload_job_notification_percentage(evt.job_id + 1, boost::nowide::narrow(nm.GetString()), boost::nowide::narrow(hst.GetString()), evt.progress / 100.f);
+    }
 }
 
 void PrintHostQueueDialog::on_error(Event &evt)
@@ -319,6 +387,11 @@ void PrintHostQueueDialog::on_error(Event &evt)
     on_list_select();
 
     GUI::show_error(nullptr, errormsg);
+
+    wxVariant nm, hst;
+    job_list->GetValue(nm, evt.job_id, COL_FILENAME);
+    job_list->GetValue(hst, evt.job_id, COL_HOST);
+    wxGetApp().notification_manager()->upload_job_notification_show_error(evt.job_id + 1, boost::nowide::narrow(nm.GetString()), boost::nowide::narrow(hst.GetString()));
 }
 
 void PrintHostQueueDialog::on_cancel(Event &evt)
@@ -329,7 +402,13 @@ void PrintHostQueueDialog::on_cancel(Event &evt)
     job_list->SetValue(wxVariant(0), evt.job_id, COL_PROGRESS);
 
     on_list_select();
+
+    wxVariant nm, hst;
+    job_list->GetValue(nm, evt.job_id, COL_FILENAME);
+    job_list->GetValue(hst, evt.job_id, COL_HOST);
+    wxGetApp().notification_manager()->upload_job_notification_show_canceled(evt.job_id + 1, boost::nowide::narrow(nm.GetString()), boost::nowide::narrow(hst.GetString()));
 }
+
 void PrintHostQueueDialog::get_active_jobs(std::vector<std::pair<std::string, std::string>>& ret)
 {
     int ic = job_list->GetItemCount();
@@ -342,5 +421,60 @@ void PrintHostQueueDialog::get_active_jobs(std::vector<std::pair<std::string, st
             ret.emplace_back(upload_names[i]);       
     }
     //job_list->data
+}
+void PrintHostQueueDialog::save_user_data(int udt)
+{
+    const auto em = GetTextExtent("m").x;
+    auto *app_config = wxGetApp().app_config;
+    if (udt & UserDataType::UDT_SIZE) {
+        
+        app_config->set("print_host_queue_dialog_height", std::to_string(this->GetSize().x / em));
+        app_config->set("print_host_queue_dialog_width", std::to_string(this->GetSize().y / em));
+    }
+    if (udt & UserDataType::UDT_POSITION)
+    {
+        app_config->set("print_host_queue_dialog_x", std::to_string(this->GetPosition().x));
+        app_config->set("print_host_queue_dialog_y", std::to_string(this->GetPosition().y));
+    }
+    if (udt & UserDataType::UDT_COLS)
+    {
+        for (size_t i = 0; i < job_list->GetColumnCount() - 1; i++)
+        {
+            app_config->set("print_host_queue_dialog_column_" + std::to_string(i), std::to_string(job_list->GetColumn(i)->GetWidth()));
+        }
+    }    
+}
+bool PrintHostQueueDialog::load_user_data(int udt, std::vector<int>& vector)
+{
+    auto* app_config = wxGetApp().app_config;
+    auto hasget = [app_config](const std::string& name, std::vector<int>& vector)->bool {
+        if (app_config->has(name)) {
+            vector.push_back(std::stoi(app_config->get(name)));
+            return true;
+        }
+        return false;
+    };
+    if (udt & UserDataType::UDT_SIZE) {
+        if (!hasget("print_host_queue_dialog_height",vector))
+            return false;
+        if (!hasget("print_host_queue_dialog_width", vector))
+            return false;
+    }
+    if (udt & UserDataType::UDT_POSITION)
+    {
+        if (!hasget("print_host_queue_dialog_x", vector))
+            return false;
+        if (!hasget("print_host_queue_dialog_y", vector))
+            return false;
+    }
+    if (udt & UserDataType::UDT_COLS)
+    {
+        for (size_t i = 0; i < 6; i++)
+        {
+            if (!hasget("print_host_queue_dialog_column_" + std::to_string(i), vector))
+                return false;
+        }
+    }
+    return true;
 }
 }}

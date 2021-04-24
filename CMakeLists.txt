@@ -146,21 +146,33 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # WIN10SDK_PATH is used to point CMake to the WIN10 SDK installation directory.
 # We pick it from environment if it is not defined in another way
 if(WIN32)
-        if(NOT DEFINED WIN10SDK_PATH)
-                if(DEFINED ENV{WIN10SDK_PATH})
-                        set(WIN10SDK_PATH "$ENV{WIN10SDK_PATH}")
-                endif()
+    if(NOT DEFINED WIN10SDK_PATH)
+        if(DEFINED ENV{WIN10SDK_PATH})
+                set(WIN10SDK_PATH "$ENV{WIN10SDK_PATH}")
         endif()
-        if(DEFINED WIN10SDK_PATH AND NOT EXISTS "${WIN10SDK_PATH}/include/winrt/windows.graphics.printing3d.h")
-                message("WIN10SDK_PATH is invalid: ${WIN10SDK_PATH}")
-                message("${WIN10SDK_PATH}/include/winrt/windows.graphics.printing3d.h was not found")
-                message("STL fixing by the Netfabb service will not be compiled")
-                unset(WIN10SDK_PATH)
+    endif()
+    if(DEFINED WIN10SDK_PATH)
+        if (EXISTS "${WIN10SDK_PATH}/include/winrt/windows.graphics.printing3d.h")
+            set(WIN10SDK_INCLUDE_PATH "${WIN10SDK_PATH}/Include")
+        else()
+            message("WIN10SDK_PATH is invalid: ${WIN10SDK_PATH}")
+            message("${WIN10SDK_PATH}/include/winrt/windows.graphics.printing3d.h was not found")
+            message("STL fixing by the Netfabb service will not be compiled")
+            unset(WIN10SDK_PATH)
         endif()
-    if(WIN10SDK_PATH)
+    else()
+        # Try to use the default Windows 10 SDK path.
+        set(WIN10SDK_INCLUDE_PATH "$ENV{WindowsSdkDir}/Include/$ENV{WindowsSDKVersion}")
+        if (NOT EXISTS "${WIN10SDK_INCLUDE_PATH}/winrt/windows.graphics.printing3d.h")
+            message("${WIN10SDK_INCLUDE_PATH}/winrt/windows.graphics.printing3d.h was not found")
+            message("STL fixing by the Netfabb service will not be compiled")
+            unset(WIN10SDK_INCLUDE_PATH)
+        endif()
+    endif()
+    if(WIN10SDK_INCLUDE_PATH)
         message("Building with Win10 Netfabb STL fixing service support")
         add_definitions(-DHAS_WIN10SDK)
-        include_directories("${WIN10SDK_PATH}/Include")
+        include_directories("${WIN10SDK_INCLUDE_PATH}")
     else()
         message("Building without Win10 Netfabb STL fixing service support")
     endif()
@@ -226,17 +238,23 @@ if (NOT MSVC AND ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR "${CMAKE_CXX_COMP
         add_compile_options(-Wno-unknown-pragmas)
     endif()
 
-    if (SLIC3R_ASAN)
-        add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+endif()
+
+if (SLIC3R_ASAN)
+    # ASAN should be available on MSVC starting with Visual Studio 2019 16.9
+    # https://devblogs.microsoft.com/cppblog/address-sanitizer-for-msvc-now-generally-available/
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+
+    if (NOT MSVC)
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
         set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -fsanitize=address")
         set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -fsanitize=address")
-
-        if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-            set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lasan")
-        endif ()
     endif ()
-endif()
+
+    if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -lasan")
+    endif ()
+endif ()
 
 if (APPLE)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Werror=partial-availability -Werror=unguarded-availability -Werror=unguarded-availability-new")
@@ -250,8 +268,6 @@ set(LIBDIR_BIN ${CMAKE_CURRENT_BINARY_DIR}/src)
 include_directories(${LIBDIR})
 # For generated header files
 include_directories(${LIBDIR_BIN}/platform)
-# For libslic3r.h
-include_directories(${LIBDIR}/clipper)
 
 if(WIN32)
     add_definitions(-D_USE_MATH_DEFINES -D_WIN32 -D_CRT_SECURE_NO_WARNINGS -D_SCL_SECURE_NO_WARNINGS)
@@ -300,7 +316,7 @@ endif()
 # boost::process was introduced first in version 1.64.0,
 # boost::beast::detail::base64 was introduced first in version 1.66.0
 set(MINIMUM_BOOST_VERSION "1.66.0")
-set(_boost_components "system;filesystem;thread;log;locale;regex;chrono;atomic;date_time")
+set(_boost_components "system;filesystem;thread;log;locale;regex;chrono;atomic;date_time;iostreams")
 find_package(Boost ${MINIMUM_BOOST_VERSION} REQUIRED COMPONENTS ${_boost_components})
 
 add_library(boost_libs INTERFACE)

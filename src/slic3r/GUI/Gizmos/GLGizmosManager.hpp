@@ -171,6 +171,7 @@ public:
     void refresh_on_off_state();
     void reset_all_states();
     bool is_serializing() const { return m_serializing; }
+    bool open_gizmo(EType type);
 
     void set_hover_id(int id);
     void enable_grabber(EType type, unsigned int id, bool enable);
@@ -210,6 +211,8 @@ public:
     ClippingPlane get_clipping_plane() const;
     bool wants_reslice_supports_on_undo() const;
 
+    bool is_in_editing_mode(bool error_notification = false) const;
+
     void render_current_gizmo() const;
     void render_current_gizmo_for_picking_pass() const;
     void render_painter_gizmo() const;
@@ -226,6 +229,7 @@ public:
     void update_after_undo_redo(const UndoRedo::Snapshot& snapshot);
 
     int get_selectable_icons_cnt() const { return get_selectable_idxs().size(); }
+    int get_shortcut_key(GLGizmosManager::EType) const;
 
 private:
     void render_background(float left, float top, float right, float bottom, float border) const;

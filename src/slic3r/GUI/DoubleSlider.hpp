@@ -43,6 +43,7 @@ enum FocusedItem {
     fiActionIcon,
     fiLowerThumb,
     fiHigherThumb,
+    fiSmartWipeTower,
     fiTick
 };
 
@@ -123,6 +124,7 @@ public:
     void erase_all_ticks_with_code(Type type);
 
     bool            has_tick_with_code(Type type);
+    bool            has_tick(int tick);
     ConflictType    is_conflict_tick(const TickCode& tick, Mode out_mode, int only_extruder, double print_z);
 
     // Get used extruders for tick.
@@ -215,10 +217,13 @@ public:
     void    SetKoefForLabels(const double koef)                { m_label_koef = koef; }
     void    SetSliderValues(const std::vector<double>& values);
     void    ChangeOneLayerLock();
+#if ENABLE_GCODE_LINES_ID_IN_H_SLIDER
+    void    SetSliderAlternateValues(const std::vector<double>& values) { m_alternate_values = values; }
+#endif // ENABLE_GCODE_LINES_ID_IN_H_SLIDER
 
     Info    GetTicksValues() const;
     void    SetTicksValues(const Info &custom_gcode_per_print_z);
-    void    SetLayersTimes(const std::vector<float>& layers_times);
+    void    SetLayersTimes(const std::vector<float>& layers_times, float total_time);
     void    SetLayersTimes(const std::vector<double>& layers_times);
 
     void    SetDrawMode(bool is_sla_print, bool is_sequential_print);
@@ -228,6 +233,8 @@ public:
     Mode    GetManipulationMode() const     { return m_mode; }
     void    SetModeAndOnlyExtruder(const bool is_one_extruder_printed_model, const int only_extruder);
     void    SetExtruderColors(const std::vector<std::string>& extruder_colors);
+
+    bool    IsNewPrint();
 
     void set_render_as_disabled(bool value) { m_render_as_disabled = value; }
     bool is_rendering_as_disabled() const { return m_render_as_disabled; }
@@ -267,6 +274,7 @@ public:
     void show_add_context_menu();
     void show_edit_context_menu();
     void show_cog_icon_context_menu();
+    void auto_color_change();
 
     ExtrudersSequence m_extruders_sequence;
 
@@ -298,6 +306,7 @@ protected:
     void    correct_higher_value();
     void    move_current_thumb(const bool condition);
     void    enter_window(wxMouseEvent& event, const bool enter);
+    bool    is_wipe_tower_layer(int tick) const;
 
 private:
 
@@ -313,6 +322,7 @@ private:
     wxSize      get_size() const;
     void        get_size(int* w, int* h) const;
     double      get_double_value(const SelectedSlider& selection);
+    int         get_tick_from_value(double value);
     wxString    get_tooltip(int tick = -1);
     int         get_edited_tick_for_position(wxPoint pos, Type type = ColorChange);
 
@@ -360,6 +370,7 @@ private:
     bool        m_is_focused = false;
     bool        m_force_mode_apply = true;
     bool        m_enable_action_icon = true;
+    bool        m_is_wipe_tower = false; //This flag indicates that there is multiple extruder print with wipe tower
 
     DrawMode    m_draw_mode = dmRegular;
 
@@ -383,13 +394,18 @@ private:
     int         m_cog_icon_dim;
     long        m_style;
     long        m_extra_style;
-    float       m_label_koef = 1.0;
+    float       m_label_koef{ 1.0 };
 
     std::vector<double> m_values;
     TickCodeInfo        m_ticks;
     std::vector<double> m_layers_times;
-
+    std::vector<double> m_layers_values;
     std::vector<std::string>    m_extruder_colors;
+    std::string         m_print_obj_idxs;
+
+#if ENABLE_GCODE_LINES_ID_IN_H_SLIDER
+    std::vector<double> m_alternate_values;
+#endif // ENABLE_GCODE_LINES_ID_IN_H_SLIDER
 
 // control's view variables
     wxCoord SLIDER_MARGIN; // margin around slider

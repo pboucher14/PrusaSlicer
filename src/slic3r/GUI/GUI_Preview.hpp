@@ -13,7 +13,7 @@ class wxNotebook;
 class wxGLCanvas;
 class wxBoxSizer;
 class wxStaticText;
-class wxChoice;
+class wxComboBox;
 class wxComboCtrl;
 class wxBitmapComboBox;
 class wxCheckBox;
@@ -82,7 +82,7 @@ class Preview : public wxPanel
     wxBoxSizer* m_layers_slider_sizer { nullptr };
     wxPanel* m_bottom_toolbar_panel { nullptr };
     wxStaticText* m_label_view_type { nullptr };
-    wxChoice* m_choice_view_type { nullptr };
+    wxComboBox* m_choice_view_type { nullptr };
     wxStaticText* m_label_show { nullptr };
     wxComboCtrl* m_combochecklist_features { nullptr };
     size_t m_combochecklist_features_pos { 0 };
@@ -102,11 +102,7 @@ class Preview : public wxPanel
     std::function<void()> m_schedule_background_process;
 
     unsigned int m_number_extruders { 1 };
-#if ENABLE_PREVIEW_TYPE_CHANGE
     bool m_keep_current_preview_type{ false };
-#else
-    std::string m_preferred_color_mode;
-#endif // ENABLE_PREVIEW_TYPE_CHANGE
 
     bool m_loaded { false };
 
@@ -138,9 +134,6 @@ public:
 
     void set_as_dirty();
 
-#if !ENABLE_PREVIEW_TYPE_CHANGE
-    void set_number_extruders(unsigned int number_extruders);
-#endif // !ENABLE_PREVIEW_TYPE_CHANGE
     void bed_shape_changed();
     void select_view(const std::string& direction);
     void set_drop_target(wxDropTarget* target);
@@ -155,18 +148,12 @@ public:
     void move_layers_slider(wxKeyEvent& evt);
     void edit_layers_slider(wxKeyEvent& evt);
 
-#if !ENABLE_PREVIEW_TYPE_CHANGE
-    void update_view_type(bool keep_volumes);
-#endif // !ENABLE_PREVIEW_TYPE_CHANGE
-
     bool is_loaded() const { return m_loaded; }
 
     void update_bottom_toolbar();
     void update_moves_slider();
     void enable_moves_slider(bool enable);
-#if ENABLE_ARROW_KEYS_WITH_SLIDERS
     void move_moves_slider(wxKeyEvent& evt);
-#endif // ENABLE_ARROW_KEYS_WITH_SLIDERS
     void hide_layers_slider();
 
 private:

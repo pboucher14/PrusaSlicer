@@ -522,10 +522,20 @@ void MainFrame::init_tabpanel()
 #ifndef __WXOSX__ // Don't call SetFont under OSX to avoid name cutting in ObjectList
     m_tabpanel->SetFont(Slic3r::GUI::wxGetApp().normal_font());
 #endif
+#if wxCHECK_VERSION(3,1,3)
+    if (wxSystemSettings::GetAppearance().IsDark())
+        m_tabpanel->SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
+#endif
     m_tabpanel->Hide();
     m_settings_dialog.set_tabpanel(m_tabpanel);
 
-    m_tabpanel->Bind(wxEVT_NOTEBOOK_PAGE_CHANGED, [this](wxEvent&) {
+    m_tabpanel->Bind(wxEVT_NOTEBOOK_PAGE_CHANGED, [this](wxBookCtrlEvent& e) {
+#if ENABLE_VALIDATE_CUSTOM_GCODE
+        Tab* old_tab = dynamic_cast<Tab*>(m_tabpanel->GetPage(e.GetOldSelection()));
+        if (old_tab)
+            old_tab->validate_custom_gcodes();
+#endif // ENABLE_VALIDATE_CUSTOM_GCODE
+
         wxWindow* panel = m_tabpanel->GetCurrentPage();
         Tab* tab = dynamic_cast<Tab*>(panel);
 
@@ -548,8 +558,6 @@ void MainFrame::init_tabpanel()
     m_plater->Hide();
 
     wxGetApp().plater_ = m_plater;
-
-    wxGetApp().obj_list()->create_popup_menus();
 
     if (wxGetApp().is_editor())
         create_preset_tabs();
@@ -661,7 +669,7 @@ bool MainFrame::is_active_and_shown_tab(Tab* tab)
 
 bool MainFrame::can_start_new_project() const
 {
-    return (m_plater != nullptr) && !m_plater->model().objects.empty();
+    return (m_plater != nullptr) && (!m_plater->get_project_filename(".3mf").IsEmpty() || !m_plater->model().objects.empty());
 }
 
 bool MainFrame::can_save() const
@@ -791,11 +799,7 @@ bool MainFrame::can_reslice() const
 
 void MainFrame::on_dpi_changed(const wxRect& suggested_rect)
 {
-#if ENABLE_WX_3_1_3_DPI_CHANGED_EVENT
     wxGetApp().update_fonts(this);
-#else
-    wxGetApp().update_fonts();
-#endif // ENABLE_WX_3_1_3_DPI_CHANGED_EVENT
     this->SetFont(this->normal_font());
 
     // update Plater
@@ -838,6 +842,9 @@ void MainFrame::on_sys_color_changed()
 
     // update label colors in respect to the system mode
     wxGetApp().init_label_colours();
+#ifdef __WXMSW__
+    m_tabpanel->SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
+#endif
 
     // update Plater
     wxGetApp().plater()->sys_color_changed();
@@ -1151,7 +1158,7 @@ void MainFrame::init_menubar_as_editor()
 
         editMenu->AppendSeparator();
         append_menu_item(editMenu, wxID_ANY, _L("Searc&h") + "\tCtrl+F",
-            _L("Search in settings"), [this](wxCommandEvent&) { m_plater->search(/*m_tabpanel->GetCurrentPage() == */m_plater->IsShown()); },
+            _L("Search in settings"), [this](wxCommandEvent&) { m_plater->search(m_plater->IsShown()); },
             "search", nullptr, []() {return true; }, this);
     }
 
@@ -1210,6 +1217,14 @@ void MainFrame::init_menubar_as_editor()
         append_menu_check_item(viewMenu, wxID_ANY, _L("&Collapse sidebar") + sep + "Shift+" + sep_space + "Tab", _L("Collapse sidebar"),
             [this](wxCommandEvent&) { m_plater->collapse_sidebar(!m_plater->is_sidebar_collapsed()); }, this,
             []() { return true; }, [this]() { return m_plater->is_sidebar_collapsed(); }, this);
+#ifndef __APPLE__
+        // OSX adds its own menu item to toggle fullscreen.
+        append_menu_check_item(viewMenu, wxID_ANY, _L("&Full screen") + "\t" + "F11", _L("Full screen"),
+            [this](wxCommandEvent&) { this->ShowFullScreen(!this->IsFullScreen(), 
+                // wxFULLSCREEN_ALL: wxFULLSCREEN_NOMENUBAR | wxFULLSCREEN_NOTOOLBAR | wxFULLSCREEN_NOSTATUSBAR | wxFULLSCREEN_NOBORDER | wxFULLSCREEN_NOCAPTION
+                wxFULLSCREEN_NOSTATUSBAR | wxFULLSCREEN_NOBORDER | wxFULLSCREEN_NOCAPTION); }, 
+            this, []() { return true; }, [this]() { return this->IsFullScreen(); }, this);
+#endif // __APPLE__
     }
 
     // Help menu
@@ -1836,14 +1851,14 @@ SettingsDialog::SettingsDialog(MainFrame* mainframe)
     if (wxGetApp().is_gcode_viewer())
         return;
 
-#if ENABLE_WX_3_1_3_DPI_CHANGED_EVENT && defined(__WXMSW__)
+#if defined(__WXMSW__)
     // ys_FIXME! temporary workaround for correct font scaling
     // Because of from wxWidgets 3.1.3 auto rescaling is implemented for the Fonts,
     // From the very beginning set dialog font to the wxSYS_DEFAULT_GUI_FONT
     this->SetFont(wxSystemSettings::GetFont(wxSYS_DEFAULT_GUI_FONT));
 #else
     this->SetFont(wxGetApp().normal_font());
-#endif // ENABLE_WX_3_1_3_DPI_CHANGED_EVENT
+#endif // __WXMSW__
     this->SetBackgroundColour(wxSystemSettings::GetColour(wxSYS_COLOUR_WINDOW));
 
     // Load the icon either from the exe, or from the ico file.
