@@ -416,7 +416,7 @@ void Preset::set_visible_from_appconfig(const AppConfig &app_config)
 const std::vector<std::string>& Preset::print_options()
 {
     static std::vector<std::string> s_opts {
-        "layer_height", "first_layer_height", "perimeters", "spiral_vase", "slice_closing_radius",
+        "layer_height", "first_layer_height", "perimeters", "spiral_vase", "slice_closing_radius", "slicing_mode",
         "top_solid_layers", "top_solid_min_thickness", "bottom_solid_layers", "bottom_solid_min_thickness",
         "extra_perimeters", "ensure_vertical_shell_thickness", "avoid_crossing_perimeters", "thin_walls", "overhangs",
         "seam_position", "external_perimeters_first", "fill_density", "fill_pattern", "top_fill_pattern", "bottom_fill_pattern",
@@ -430,7 +430,7 @@ const std::vector<std::string>& Preset::print_options()
 #endif /* HAS_PRESSURE_EQUALIZER */
         "perimeter_speed", "small_perimeter_speed", "external_perimeter_speed", "infill_speed", "solid_infill_speed",
         "top_solid_infill_speed", "support_material_speed", "support_material_xy_spacing", "support_material_interface_speed",
-        "bridge_speed", "gap_fill_speed", "gap_fill_enabled", "travel_speed", "first_layer_speed", "perimeter_acceleration", "infill_acceleration",
+        "bridge_speed", "gap_fill_speed", "gap_fill_enabled", "travel_speed", "travel_speed_z", "first_layer_speed", "perimeter_acceleration", "infill_acceleration",
         "bridge_acceleration", "first_layer_acceleration", "default_acceleration", "skirts", "skirt_distance", "skirt_height", "draft_shield",
         "min_skirt_length", "brim_width", "brim_offset", "brim_type", "support_material", "support_material_auto", "support_material_threshold", "support_material_enforce_layers",
         "raft_layers", "raft_first_layer_density", "raft_first_layer_expansion", "raft_contact_distance", "raft_expansion",
@@ -445,7 +445,7 @@ const std::vector<std::string>& Preset::print_options()
         "perimeter_extrusion_width", "external_perimeter_extrusion_width", "infill_extrusion_width", "solid_infill_extrusion_width",
         "top_infill_extrusion_width", "support_material_extrusion_width", "infill_overlap", "infill_anchor", "infill_anchor_max", "bridge_flow_ratio", "clip_multipart_objects",
         "elefant_foot_compensation", "xy_size_compensation", "threads", "resolution", "wipe_tower", "wipe_tower_x", "wipe_tower_y",
-        "wipe_tower_width", "wipe_tower_rotation_angle", "wipe_tower_brim_width", "wipe_tower_bridging", "single_extruder_multi_material_priming",
+        "wipe_tower_width", "wipe_tower_rotation_angle", "wipe_tower_brim_width", "wipe_tower_bridging", "single_extruder_multi_material_priming", "mmu_segmented_region_max_width",
         "wipe_tower_no_sparse_layers", "compatible_printers", "compatible_printers_condition", "inherits"
     };
     return s_opts;
@@ -543,6 +543,7 @@ const std::vector<std::string>& Preset::sla_print_options()
             "support_points_density_relative",
             "support_points_minimal_distance",
             "slice_closing_radius",
+            "slicing_mode",
             "pad_enable",
             "pad_wall_thickness",
             "pad_wall_height",
@@ -624,11 +625,17 @@ const std::vector<std::string>& Preset::sla_printer_options()
 PresetCollection::PresetCollection(Preset::Type type, const std::vector<std::string> &keys, const Slic3r::StaticPrintConfig &defaults, const std::string &default_name) :
     m_type(type),
     m_edited_preset(type, "", false),
+#if ENABLE_PROJECT_DIRTY_STATE
+    m_saved_preset(type, "", false),
+#endif // ENABLE_PROJECT_DIRTY_STATE
     m_idx_selected(0)
 {
     // Insert just the default preset.
     this->add_default_preset(keys, defaults, default_name);
     m_edited_preset.config.apply(m_presets.front().config);
+#if ENABLE_PROJECT_DIRTY_STATE
+    update_saved_preset_from_current_preset();
+#endif // ENABLE_PROJECT_DIRTY_STATE
 }
 
 void PresetCollection::reset(bool delete_files)
@@ -805,7 +812,10 @@ std::pair<Preset*, bool> PresetCollection::load_external_preset(
             // The source config may contain keys from many possible preset types. Just copy those that relate to this preset.
             this->get_edited_preset().config.apply_only(combined_config, keys, true);
             this->update_dirty();
-            assert(this->get_edited_preset().is_dirty);
+#if ENABLE_PROJECT_DIRTY_STATE
+            update_saved_preset_from_current_preset();
+#endif // ENABLE_PROJECT_DIRTY_STATE
+                assert(this->get_edited_preset().is_dirty);
             return std::make_pair(&(*it), this->get_edited_preset().is_dirty);
         }
         if (inherits.empty()) {
@@ -1070,7 +1080,7 @@ Preset* PresetCollection::find_preset(const std::string &name, bool first_visibl
 size_t PresetCollection::first_visible_idx() const
 {
     size_t idx = m_default_suppressed ? m_num_default_presets : 0;
-    for (; idx < this->m_presets.size(); ++ idx)
+    for (; idx < m_presets.size(); ++ idx)
         if (m_presets[idx].is_visible)
             break;
     if (idx == m_presets.size())
@@ -1215,6 +1225,9 @@ Preset& PresetCollection::select_preset(size_t idx)
         idx = first_visible_idx();
     m_idx_selected = idx;
     m_edited_preset = m_presets[idx];
+#if ENABLE_PROJECT_DIRTY_STATE
+    update_saved_preset_from_current_preset();
+#endif // ENABLE_PROJECT_DIRTY_STATE
     bool default_visible = ! m_default_suppressed || m_idx_selected < m_num_default_presets;
     for (size_t i = 0; i < m_num_default_presets; ++i)
         m_presets[i].is_visible = default_visible;
@@ -1282,7 +1295,7 @@ std::vector<std::string> PresetCollection::merge_presets(PresetCollection &&othe
                 assert(it != new_vendors.end());
                 preset.vendor = &it->second;
             }
-            this->m_presets.emplace(it, std::move(preset));
+            m_presets.emplace(it, std::move(preset));
         } else
             duplicates.emplace_back(std::move(preset.name));
     }

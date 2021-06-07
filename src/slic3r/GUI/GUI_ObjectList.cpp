@@ -7,6 +7,9 @@
 #include "GUI_App.hpp"
 #include "I18N.hpp"
 #include "Plater.hpp"
+#if ENABLE_PROJECT_DIRTY_STATE
+#include "MainFrame.hpp"
+#endif // ENABLE_PROJECT_DIRTY_STATE
 
 #include "OptionsGroup.hpp"
 #include "Tab.hpp"
@@ -18,6 +21,7 @@
 
 #include <boost/algorithm/string.hpp>
 #include <wx/progdlg.h>
+#include <wx/numformatter.h>
 
 #include "slic3r/Utils/FixModelByWin10.hpp"
 
@@ -143,18 +147,28 @@ ObjectList::ObjectList(wxWindow* parent) :
 //    Bind(wxEVT_KEY_DOWN, &ObjectList::OnChar, this);
     {
         // Accelerators
-        wxAcceleratorEntry entries[10];
-        entries[0].Set(wxACCEL_CTRL, (int) 'C',    wxID_COPY);
-        entries[1].Set(wxACCEL_CTRL, (int) 'X',    wxID_CUT);
-        entries[2].Set(wxACCEL_CTRL, (int) 'V',    wxID_PASTE);
-        entries[3].Set(wxACCEL_CTRL, (int) 'A',    wxID_SELECTALL);
-        entries[4].Set(wxACCEL_CTRL, (int) 'Z',    wxID_UNDO);
-        entries[5].Set(wxACCEL_CTRL, (int) 'Y',    wxID_REDO);
+        wxAcceleratorEntry entries[33];
+        entries[0].Set(wxACCEL_CTRL, (int)'C', wxID_COPY);
+        entries[1].Set(wxACCEL_CTRL, (int)'X', wxID_CUT);
+        entries[2].Set(wxACCEL_CTRL, (int)'V', wxID_PASTE);
+        entries[3].Set(wxACCEL_CTRL, (int)'A', wxID_SELECTALL);
+        entries[4].Set(wxACCEL_CTRL, (int)'Z', wxID_UNDO);
+        entries[5].Set(wxACCEL_CTRL, (int)'Y', wxID_REDO);
         entries[6].Set(wxACCEL_NORMAL, WXK_DELETE, wxID_DELETE);
-        entries[7].Set(wxACCEL_NORMAL, WXK_BACK,   wxID_DELETE);
-        entries[8].Set(wxACCEL_NORMAL, int('+'),   wxID_ADD);
-        entries[9].Set(wxACCEL_NORMAL, int('-'),   wxID_REMOVE);
-        wxAcceleratorTable accel(10, entries);
+        entries[7].Set(wxACCEL_NORMAL, WXK_BACK, wxID_DELETE);
+        entries[8].Set(wxACCEL_NORMAL, int('+'), wxID_ADD);
+        entries[9].Set(wxACCEL_NORMAL, WXK_NUMPAD_ADD, wxID_ADD);
+        entries[10].Set(wxACCEL_NORMAL, int('-'), wxID_REMOVE);
+        entries[11].Set(wxACCEL_NORMAL, WXK_NUMPAD_SUBTRACT, wxID_REMOVE);
+        entries[12].Set(wxACCEL_NORMAL, int('p'), wxID_PRINT);
+
+        int numbers_cnt = 1;
+        for (auto char_number : { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' }) {
+            entries[12 + numbers_cnt].Set(wxACCEL_NORMAL, int(char_number), wxID_LAST + numbers_cnt);
+            entries[22 + numbers_cnt].Set(wxACCEL_NORMAL, WXK_NUMPAD0 + numbers_cnt - 1, wxID_LAST + numbers_cnt);
+            numbers_cnt++;
+        }
+        wxAcceleratorTable accel(33, entries);
         SetAcceleratorTable(accel);
 
         this->Bind(wxEVT_MENU, [this](wxCommandEvent &evt) { this->copy();                      }, wxID_COPY);
@@ -165,6 +179,13 @@ ObjectList::ObjectList(wxWindow* parent) :
         this->Bind(wxEVT_MENU, [this](wxCommandEvent &evt) { this->redo();                    	}, wxID_REDO);
         this->Bind(wxEVT_MENU, [this](wxCommandEvent &evt) { this->increase_instances();        }, wxID_ADD);
         this->Bind(wxEVT_MENU, [this](wxCommandEvent &evt) { this->decrease_instances();        }, wxID_REMOVE);
+        this->Bind(wxEVT_MENU, [this](wxCommandEvent &evt) { this->toggle_printable_state();    }, wxID_PRINT);
+        
+        for (int i = 0; i < 10; i++)
+            this->Bind(wxEVT_MENU, [this, i](wxCommandEvent &evt) {
+                if (extruders_count() > 1 && i <= extruders_count())
+                    this->set_extruder_for_selected_items(i);
+            }, wxID_LAST+i+1);
     }
 #else //__WXOSX__
     Bind(wxEVT_CHAR, [this](wxKeyEvent& event) { key_event(event); }); // doesn't work on OSX
@@ -274,6 +295,9 @@ void ObjectList::create_objects_ctrl()
     BitmapChoiceRenderer* bmp_choice_renderer = new BitmapChoiceRenderer();
     bmp_choice_renderer->set_can_create_editor_ctrl_function([this]() {
         return m_objects_model->GetItemType(GetSelection()) & (itVolume | itLayer | itObject);
+    });
+    bmp_choice_renderer->set_default_extruder_idx([this]() {
+        return m_objects_model->GetDefaultExtruderIdx(GetSelection());
     });
     AppendColumn(new wxDataViewColumn(_L("Extruder"), bmp_choice_renderer,
         colExtruder, 8*em, wxALIGN_CENTER_HORIZONTAL, wxDATAVIEW_COL_RESIZABLE));
@@ -714,23 +738,9 @@ void ObjectList::paste_volumes_into_list(int obj_idx, const ModelVolumePtrs& vol
     if (volumes.empty())
         return;
 
-    const auto object_item = m_objects_model->GetItemById(obj_idx);
-
-    wxDataViewItemArray items;
-
-    for (const ModelVolume* volume : volumes)
-    {
-        const wxDataViewItem& vol_item = m_objects_model->AddVolumeChild(object_item, wxString::FromUTF8(volume->name.c_str()), volume->type(), 
-            volume->get_mesh_errors_count()>0 ,
-            volume->config.has("extruder") ? volume->config.extruder() : 0);
-        add_settings_item(vol_item, &volume->config.get());
-        items.Add(vol_item);
-    }
-
-    changed_object(obj_idx);
-
-    if (items.size() > 1)
-    {
+    wxDataViewItemArray items = reorder_volumes_and_get_selection(obj_idx, [volumes](const ModelVolume* volume) {
+        return std::find(volumes.begin(), volumes.end(), volume) != volumes.end(); });
+    if (items.size() > 1) {
         m_selection_mode = smVolume;
         m_last_selected_item = wxDataViewItem(nullptr);
     }
@@ -1031,6 +1041,20 @@ void ObjectList::key_event(wxKeyEvent& event)
         increase_instances();
     else if (event.GetUnicodeKey() == '-')
         decrease_instances();
+    else if (event.GetUnicodeKey() == 'p')
+        toggle_printable_state();
+    else if (extruders_count() > 1) {
+        std::vector<wxChar> numbers = { '0', '1', '2', '3', '4', '5', '6', '7', '8', '9' };
+        wxChar key_char = event.GetUnicodeKey();
+        if (std::find(numbers.begin(), numbers.end(), key_char) != numbers.end()) {
+            long extruder_number;
+            if (wxNumberFormatter::FromString(wxString(key_char), &extruder_number) &&
+                extruders_count() >= extruder_number)
+                set_extruder_for_selected_items(int(extruder_number));
+        }
+        else
+            event.Skip();
+    }
     else
         event.Skip();
 }
@@ -1100,8 +1124,44 @@ bool ObjectList::can_drop(const wxDataViewItem& item) const
         return false;
 
     // move volumes inside one object only
-    if (m_dragged_data.type() & itVolume)
-        return m_dragged_data.obj_idx() == m_objects_model->GetObjectIdByItem(item);
+    if (m_dragged_data.type() & itVolume) {
+        if (m_dragged_data.obj_idx() != m_objects_model->GetObjectIdByItem(item))
+            return false;
+        wxDataViewItem dragged_item = m_objects_model->GetItemByVolumeId(m_dragged_data.obj_idx(), m_dragged_data.sub_obj_idx());
+        if (!dragged_item)
+            return false;
+        ModelVolumeType item_v_type = m_objects_model->GetVolumeType(item);
+        ModelVolumeType dragged_item_v_type = m_objects_model->GetVolumeType(dragged_item);
+
+        if (dragged_item_v_type == item_v_type && dragged_item_v_type != ModelVolumeType::MODEL_PART)
+            return true;
+        if ((wxGetApp().app_config->get("order_volumes") == "1" && dragged_item_v_type != item_v_type) ||   // we can't reorder volumes outside of types
+            item_v_type >= ModelVolumeType::SUPPORT_BLOCKER)        // support blockers/enforcers can't change its place
+            return false; 
+
+        bool only_one_solid_part = true;
+        auto& volumes = (*m_objects)[m_dragged_data.obj_idx()]->volumes;
+        for (size_t cnt, id = cnt = 0; id < volumes.size() && cnt < 2; id ++)
+            if (volumes[id]->type() == ModelVolumeType::MODEL_PART) {
+                if (++cnt > 1)
+                    only_one_solid_part = false;
+            }
+
+        if (dragged_item_v_type == ModelVolumeType::MODEL_PART) {
+            if (only_one_solid_part)
+                return false;
+            return (m_objects_model->GetVolumeIdByItem(item) == 0 ||
+                    (m_dragged_data.sub_obj_idx()==0 && volumes[1]->type() == ModelVolumeType::MODEL_PART) ||
+                    (m_dragged_data.sub_obj_idx()!=0 && volumes[0]->type() == ModelVolumeType::MODEL_PART));
+        }
+        if ((dragged_item_v_type == ModelVolumeType::NEGATIVE_VOLUME || dragged_item_v_type == ModelVolumeType::PARAMETER_MODIFIER)) {
+            if (only_one_solid_part)
+                return false;
+            return m_objects_model->GetVolumeIdByItem(item) != 0;
+        }
+        
+        return false;
+    }
 
     return true;
 }
@@ -1285,27 +1345,25 @@ void ObjectList::load_subobject(ModelVolumeType type)
 
     take_snapshot(_L("Load Part"));
 
-    std::vector<std::pair<wxString, bool>> volumes_info;
-    load_part((*m_objects)[obj_idx], volumes_info, type);
+    std::vector<ModelVolume*> volumes;
+    load_part((*m_objects)[obj_idx], volumes, type);
+    wxDataViewItemArray items = reorder_volumes_and_get_selection(obj_idx, [volumes](const ModelVolume* volume) {
+        return std::find(volumes.begin(), volumes.end(), volume) != volumes.end(); });
 
-    changed_object(obj_idx);
     if (type == ModelVolumeType::MODEL_PART)
         // update printable state on canvas
         wxGetApp().plater()->canvas3D()->update_instance_printable_state_for_object((size_t)obj_idx);
 
-    wxDataViewItem sel_item;
-    for (const auto& volume : volumes_info )
-        sel_item = m_objects_model->AddVolumeChild(item, volume.first, type, volume.second);
-        
-    if (sel_item)
-        select_item(sel_item);
+    if (items.size() > 1) {
+        m_selection_mode = smVolume;
+        m_last_selected_item = wxDataViewItem(nullptr);
+    }
+    select_items(items);
 
     selection_changed();
 }
 
-void ObjectList::load_part( ModelObject* model_object,
-                            std::vector<std::pair<wxString, bool>> &volumes_info,
-                            ModelVolumeType type)
+void ObjectList::load_part(ModelObject* model_object, std::vector<ModelVolume*>& added_volumes, ModelVolumeType type)
 {
     wxWindow* parent = wxGetApp().tab_panel()->GetPage(0);
 
@@ -1340,14 +1398,12 @@ void ObjectList::load_part( ModelObject* model_object,
             }
             for (auto volume : object->volumes) {
                 volume->translate(delta);
-                auto new_volume = model_object->add_volume(*volume);
-                new_volume->set_type(type);
+                auto new_volume = model_object->add_volume(*volume, type);
                 new_volume->name = boost::filesystem::path(input_file).filename().string();
-
-                volumes_info.push_back(std::make_pair(from_u8(new_volume->name), new_volume->get_mesh_errors_count()>0));
-
                 // set a default extruder value, since user can't add it manually
                 new_volume->config.set_key_value("extruder", new ConfigOptionInt(0));
+
+                added_volumes.push_back(new_volume);
             }
         }
     }
@@ -1411,8 +1467,7 @@ void ObjectList::load_generic_subobject(const std::string& type_name, const Mode
     TriangleMesh mesh = create_mesh(type_name, instance_bb);
     
 	// Mesh will be centered when loading.
-    ModelVolume *new_volume = model_object.add_volume(std::move(mesh));
-    new_volume->set_type(type);
+    ModelVolume *new_volume = model_object.add_volume(std::move(mesh), type);
 
     if (instance_idx != -1)
     {
@@ -1435,14 +1490,19 @@ void ObjectList::load_generic_subobject(const std::string& type_name, const Mode
     // set a default extruder value, since user can't add it manually
     new_volume->config.set_key_value("extruder", new ConfigOptionInt(0));
 
-    changed_object(obj_idx);
+    select_item([this, obj_idx, new_volume]() {
+        wxDataViewItem sel_item;
+
+        wxDataViewItemArray items = reorder_volumes_and_get_selection(obj_idx, [new_volume](const ModelVolume* volume) { return volume == new_volume; });
+        if (!items.IsEmpty())
+            sel_item = items.front();
+
+        return sel_item;
+    });
     if (type == ModelVolumeType::MODEL_PART)
         // update printable state on canvas
         wxGetApp().plater()->canvas3D()->update_instance_printable_state_for_object((size_t)obj_idx);
 
-    const auto object_item = m_objects_model->GetTopParent(GetSelection());
-    select_item([this, object_item, name, type, new_volume]() { return m_objects_model->AddVolumeChild(object_item, name, type,
-        new_volume->get_mesh_errors_count() > 0); });
     selection_changed();
 }
 
@@ -1457,12 +1517,15 @@ void ObjectList::load_shape_object(const std::string& type_name)
     if (obj_idx < 0)
         return;
 
-    take_snapshot(_(L("Add Shape")));
+    take_snapshot(_L("Add Shape"));
 
     // Create mesh
     BoundingBoxf3 bb;
     TriangleMesh mesh = create_mesh(type_name, bb);
-    load_mesh_object(mesh, _(L("Shape")) + "-" + _(type_name));
+    load_mesh_object(mesh, _L("Shape") + "-" + _(type_name));
+#if ENABLE_PROJECT_DIRTY_STATE
+    wxGetApp().mainframe->update_title();
+#endif // ENABLE_PROJECT_DIRTY_STATE
 }
 
 void ObjectList::load_mesh_object(const TriangleMesh &mesh, const wxString &name, bool center)
@@ -1481,6 +1544,7 @@ void ObjectList::load_mesh_object(const TriangleMesh &mesh, const wxString &name
     new_object->add_instance(); // each object should have at list one instance
     
     ModelVolume* new_volume = new_object->add_volume(mesh);
+    new_object->sort_volumes(wxGetApp().app_config->get("order_volumes") == "1");
     new_volume->name = into_u8(name);
     // set a default extruder value, since user can't add it manually
     new_volume->config.set_key_value("extruder", new ConfigOptionInt(0));
@@ -1709,7 +1773,7 @@ void ObjectList::split()
 
     for (const ModelVolume* volume : model_object->volumes) {
         const wxDataViewItem& vol_item = m_objects_model->AddVolumeChild(parent, from_u8(volume->name),
-            volume->is_modifier() ? ModelVolumeType::PARAMETER_MODIFIER : ModelVolumeType::MODEL_PART,
+            volume->type(),// is_modifier() ? ModelVolumeType::PARAMETER_MODIFIER : ModelVolumeType::MODEL_PART,
             volume->get_mesh_errors_count()>0,
             volume->config.has("extruder") ? volume->config.extruder() : 0,
             false);
@@ -1865,6 +1929,7 @@ void ObjectList::merge(bool to_multipart_object)
                 Vec3d vol_offset = volume_offset_correction* new_volume->get_offset();
                 new_volume->set_offset(vol_offset);
             }
+            new_object->sort_volumes(wxGetApp().app_config->get("order_volumes") == "1");
 
             // merge settings
             auto new_opt_keys = config.keys();
@@ -2113,18 +2178,15 @@ void ObjectList::part_selection_changed()
 
     const auto item = GetSelection();
 
-    if ( multiple_selection() || (item && m_objects_model->GetItemType(item) == itInstanceRoot ))
-    {
-        og_name = _(L("Group manipulation"));
+    if ( multiple_selection() || (item && m_objects_model->GetItemType(item) == itInstanceRoot )) {
+        og_name = _L("Group manipulation");
 
         const Selection& selection = scene_selection();
         // don't show manipulation panel for case of all Object's parts selection 
         update_and_show_manipulations = !selection.is_single_full_instance();
     }
-    else
-    {
-        if (item)
-        {
+    else {
+        if (item) {
             const ItemType type = m_objects_model->GetItemType(item);
             const wxDataViewItem parent = m_objects_model->GetParent(item);
             const ItemType parent_type = m_objects_model->GetItemType(parent);
@@ -2132,7 +2194,7 @@ void ObjectList::part_selection_changed()
 
             if (parent == wxDataViewItem(nullptr)
              || type == itInfo) {
-                og_name = _(L("Object manipulation"));
+                og_name = _L("Object manipulation");
                 m_config = &(*m_objects)[obj_idx]->config;
                 update_and_show_manipulations = true;
 
@@ -2152,35 +2214,35 @@ void ObjectList::part_selection_changed()
             else {
                 if (type & itSettings) {
                     if (parent_type & itObject) {
-                        og_name = _(L("Object Settings to modify"));
+                        og_name = _L("Object Settings to modify");
                         m_config = &(*m_objects)[obj_idx]->config;
                     }
                     else if (parent_type & itVolume) {
-                        og_name = _(L("Part Settings to modify"));
+                        og_name = _L("Part Settings to modify");
                         volume_id = m_objects_model->GetVolumeIdByItem(parent);
                         m_config = &(*m_objects)[obj_idx]->volumes[volume_id]->config;
                     }
                     else if (parent_type & itLayer) {
-                        og_name = _(L("Layer range Settings to modify"));
+                        og_name = _L("Layer range Settings to modify");
                         m_config = &get_item_config(parent);
                     }
                     update_and_show_settings = true;
                 }
                 else if (type & itVolume) {
-                    og_name = _(L("Part manipulation"));
+                    og_name = _L("Part manipulation");
                     volume_id = m_objects_model->GetVolumeIdByItem(item);
                     m_config = &(*m_objects)[obj_idx]->volumes[volume_id]->config;
                     update_and_show_manipulations = true;
                 }
                 else if (type & itInstance) {
-                    og_name = _(L("Instance manipulation"));
+                    og_name = _L("Instance manipulation");
                     update_and_show_manipulations = true;
 
                     // fill m_config by object's values
                     m_config = &(*m_objects)[obj_idx]->config;
                 }
                 else if (type & (itLayerRoot|itLayer)) {
-                    og_name = type & itLayerRoot ? _(L("Height ranges")) : _(L("Settings for height range"));
+                    og_name = type & itLayerRoot ? _L("Height ranges") : _L("Settings for height range");
                     update_and_show_layers = true;
 
                     if (type & itLayer)
@@ -2236,7 +2298,7 @@ wxDataViewItem ObjectList::add_settings_item(wxDataViewItem parent_item, const D
     const bool is_object_settings = m_objects_model->GetItemType(parent_item) == itObject;
     if (!is_object_settings) {
         ModelVolumeType volume_type = m_objects_model->GetVolumeType(parent_item);
-        if (volume_type == ModelVolumeType::SUPPORT_BLOCKER || volume_type == ModelVolumeType::SUPPORT_ENFORCER)
+        if (volume_type == ModelVolumeType::NEGATIVE_VOLUME || volume_type == ModelVolumeType::SUPPORT_BLOCKER || volume_type == ModelVolumeType::SUPPORT_ENFORCER)
             return ret;
     }
 
@@ -2292,6 +2354,7 @@ void ObjectList::update_info_items(size_t obj_idx)
             should_show = printer_technology() == ptFFF
                        && ! model_object->layer_height_profile.empty();
             break;
+        default: break;
         }
 
         if (! shows && should_show) {
@@ -2470,28 +2533,22 @@ void ObjectList::unselect_objects()
     m_prevent_list_events = false;
 }
 
-void ObjectList::select_current_object(int idx)
+void ObjectList::select_object_item(bool is_msr_gizmo)
 {
-    m_prevent_list_events = true;
-    UnselectAll();
-    if (idx >= 0)
-        Select(m_objects_model->GetItemById(idx));
-    part_selection_changed();
-    m_prevent_list_events = false;
-}
+    if (wxDataViewItem item = GetSelection()) {
+        ItemType type = m_objects_model->GetItemType(item);
+        bool is_volume_item = type == itVolume || (type == itSettings && m_objects_model->GetItemType(m_objects_model->GetParent(item)) == itVolume);
+        if ((is_msr_gizmo && is_volume_item) || type == itObject)
+            return;
 
-void ObjectList::select_current_volume(int idx, int vol_idx)
-{
-    if (vol_idx < 0) {
-        select_current_object(idx);
-        return;
+        if (wxDataViewItem obj_item = m_objects_model->GetTopParent(item)) {
+            m_prevent_list_events = true;
+            UnselectAll();
+            Select(obj_item);
+            part_selection_changed();
+            m_prevent_list_events = false;
+        }
     }
-    m_prevent_list_events = true;
-    UnselectAll();
-    if (idx >= 0)
-        Select(m_objects_model->GetItemByVolumeId(idx, vol_idx));
-    part_selection_changed();
-    m_prevent_list_events = false;
 }
 
 static void update_selection(wxDataViewItemArray& sels, ObjectList::SELECTION_MODE mode, ObjectDataViewModel* model)
@@ -2815,7 +2872,7 @@ bool ObjectList::edit_layer_range(const t_layer_height_range& range, const t_lay
     const int obj_idx = m_selected_object_id;
     if (obj_idx < 0) return false;
 
-    take_snapshot(_(L("Edit Height Range")));
+    take_snapshot(_L("Edit Height Range"));
 
     const ItemType sel_type = m_objects_model->GetItemType(GetSelection());
 
@@ -2896,7 +2953,8 @@ void ObjectList::update_selections()
     {
         const auto item = GetSelection();
         if (selection.is_single_full_object()) {
-            if (m_objects_model->GetItemType(m_objects_model->GetParent(item)) & itObject)
+            if (m_objects_model->GetItemType(m_objects_model->GetParent(item)) & itObject &&
+                m_objects_model->GetObjectIdByItem(item) == selection.get_object_idx() )
                 return;
             sels.Add(m_objects_model->GetItemById(selection.get_object_idx()));
         }
@@ -3388,12 +3446,12 @@ void ObjectList::change_part_type()
     if (!volume)
         return;
 
+    const int obj_idx = get_selected_obj_idx();
+    if (obj_idx < 0) return;
+
     const ModelVolumeType type = volume->type();
     if (type == ModelVolumeType::MODEL_PART)
     {
-        const int obj_idx = get_selected_obj_idx();
-        if (obj_idx < 0) return;
-
         int model_part_cnt = 0;
         for (auto vol : (*m_objects)[obj_idx]->volumes) {
             if (vol->type() == ModelVolumeType::MODEL_PART)
@@ -3406,34 +3464,18 @@ void ObjectList::change_part_type()
         }
     }
 
-    const wxString names[] = { _(L("Part")), _(L("Modifier")), _(L("Support Enforcer")), _(L("Support Blocker")) };
-    
-    auto new_type = ModelVolumeType(wxGetSingleChoiceIndex(_(L("Type:")), _(L("Select type of part")), wxArrayString(4, names), int(type)));
+    const wxString names[] = { _L("Part"), _L("Negative Volume"), _L("Modifier"), _L("Support Blocker"), _L("Support Enforcer") };
+    auto new_type = ModelVolumeType(wxGetSingleChoiceIndex(_L("Type:"), _L("Select type of part"), wxArrayString(5, names), int(type)));
 
 	if (new_type == type || new_type == ModelVolumeType::INVALID)
         return;
 
-    take_snapshot(_(L("Change Part Type")));
+    take_snapshot(_L("Change Part Type"));
 
     volume->set_type(new_type);
-    wxDataViewItem item = GetSelection();
-    if (m_objects_model->GetItemType(item) != itVolume && m_objects_model->GetItemType(m_objects_model->GetParent(item)) == itVolume)
-        item = m_objects_model->GetParent(item);
-    m_objects_model->SetVolumeType(item, new_type);
-
-    changed_object(get_selected_obj_idx());
-
-    // Update settings showing, if we have it
-    //(we show additional settings for Part and Modifier and hide it for Support Blocker/Enforcer)
-    const auto settings_item = m_objects_model->GetSettingsItem(item);
-    if (settings_item && 
-        (new_type == ModelVolumeType::SUPPORT_ENFORCER || new_type == ModelVolumeType::SUPPORT_BLOCKER)) {
-        m_objects_model->Delete(settings_item);
-    }
-    else if (!settings_item && 
-              (new_type == ModelVolumeType::MODEL_PART || new_type == ModelVolumeType::PARAMETER_MODIFIER)) {
-        add_settings_item(item, &volume->config.get());
-    }
+    wxDataViewItemArray sel = reorder_volumes_and_get_selection(obj_idx, [volume](const ModelVolume* vol) { return vol == volume; });
+    if (!sel.IsEmpty())
+        select_item(sel.front());
 }
 
 void ObjectList::last_volume_is_deleted(const int obj_idx)
@@ -3755,8 +3797,12 @@ void ObjectList::ItemValueChanged(wxDataViewEvent &event)
 {
     if (event.GetColumn() == colName)
         update_name_in_model(event.GetItem());
-    else if (event.GetColumn() == colExtruder)
-        update_extruder_in_config(event.GetItem());
+    else if (event.GetColumn() == colExtruder) {
+        wxDataViewItem item = event.GetItem();
+        if (m_objects_model->GetItemType(item) == itObject)
+            m_objects_model->UpdateVolumesExtruderBitmap(item);
+        update_extruder_in_config(item);
+    }
 }
 
 #ifdef __WXMSW__
@@ -3792,40 +3838,15 @@ void ObjectList::OnEditingDone(wxDataViewEvent &event)
         plater->set_current_canvas_as_dirty();
 }
 
-void ObjectList::extruder_selection()
-{
-    wxArrayString choices;
-    choices.Add(_(L("default")));
-    for (int i = 1; i <= extruders_count(); ++i)
-        choices.Add(wxString::Format("%d", i));
-
-    const wxString& selected_extruder = wxGetSingleChoice(_(L("Select extruder number:")),
-                                                          _(L("This extruder will be set for selected items")),
-                                                          choices, 0, this);
-    if (selected_extruder.IsEmpty())
-        return;
-
-    const int extruder_num = selected_extruder == _(L("default")) ? 0 : atoi(selected_extruder.c_str());
-
-//          /* Another variant for an extruder selection */
-//     extruder_num = wxGetNumberFromUser(_(L("Attention!!! \n"
-//                                              "It's a possibile to set an extruder number \n"
-//                                              "for whole Object(s) and/or object Part(s), \n"
-//                                              "not for an Instance. ")), 
-//                                          _(L("Enter extruder number:")),
-//                                          _(L("This extruder will be set for selected items")), 
-//                                          1, 1, 5, this);
-
-    set_extruder_for_selected_items(extruder_num);
-}
-
 void ObjectList::set_extruder_for_selected_items(const int extruder) const 
 {
     wxDataViewItemArray sels;
     GetSelections(sels);
 
-    if (!sels.empty())
-        take_snapshot(_(L("Change Extruders")));
+    if (sels.empty())
+        return;
+
+    take_snapshot(_L("Change Extruders"));
 
     for (const wxDataViewItem& item : sels)
     {
@@ -3858,6 +3879,42 @@ void ObjectList::set_extruder_for_selected_items(const int extruder) const
 
     // update scene
     wxGetApp().plater()->update();
+}
+
+wxDataViewItemArray ObjectList::reorder_volumes_and_get_selection(int obj_idx, std::function<bool(const ModelVolume*)> add_to_selection/* = nullptr*/)
+{
+    wxDataViewItemArray items;
+
+    ModelObject* object = (*m_objects)[obj_idx];
+    object->sort_volumes(wxGetApp().app_config->get("order_volumes") == "1");
+
+    wxDataViewItem object_item = m_objects_model->GetItemById(obj_idx);
+    m_objects_model->DeleteVolumeChildren(object_item);
+
+    for (const ModelVolume* volume : object->volumes) {
+        wxDataViewItem vol_item = m_objects_model->AddVolumeChild(object_item, from_u8(volume->name),
+            volume->type(),
+            volume->get_mesh_errors_count() > 0,
+            volume->config.has("extruder") ? volume->config.extruder() : 0,
+            false);
+        // add settings to the part, if it has those
+        add_settings_item(vol_item, &volume->config.get());
+
+        if (add_to_selection && add_to_selection(volume))
+            items.Add(vol_item);
+    }
+
+    changed_object(obj_idx);
+    return items;
+}
+
+void ObjectList::apply_volumes_order()
+{
+    if (wxGetApp().app_config->get("order_volumes") != "1" || !m_objects)
+        return;
+
+    for (size_t obj_idx = 0; obj_idx < m_objects->size(); obj_idx++)
+        reorder_volumes_and_get_selection(obj_idx);
 }
 
 void ObjectList::update_after_undo_redo()
@@ -3911,6 +3968,8 @@ void ObjectList::toggle_printable_state()
 {
     wxDataViewItemArray sels;
     GetSelections(sels);
+    if (sels.IsEmpty())
+        return;
 
     wxDataViewItem frst_item = sels[0];
 
@@ -3923,10 +3982,10 @@ void ObjectList::toggle_printable_state()
     int inst_idx = type == itObject ? 0 : m_objects_model->GetInstanceIdByItem(frst_item);
     bool printable = !object(obj_idx)->instances[inst_idx]->printable;
 
-    const wxString snapshot_text =  sels.Count() > 1 ? (printable ? _L("Set Printable group") : _L("Set Unprintable group")) :
-                                    object(obj_idx)->instances.size() == 1 ? from_u8((boost::format("%1% %2%")
-                                        % (printable ? _L("Set Printable") : _L("Set Unprintable"))
-                                        % object(obj_idx)->name).str()) :
+    const wxString snapshot_text =  sels.Count() > 1 ? 
+                                    (printable ? _L("Set Printable group") : _L("Set Unprintable group")) :
+                                    object(obj_idx)->instances.size() == 1 ? 
+                                    format_wxstr("%1% %2%", (printable ? _L("Set Printable") : _L("Set Unprintable")), from_u8(object(obj_idx)->name)) :
                                     (printable ? _L("Set Printable Instance") : _L("Set Unprintable Instance"));
     take_snapshot(snapshot_text);
 

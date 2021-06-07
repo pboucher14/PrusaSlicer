@@ -180,8 +180,8 @@ private:
 class LayerHeightProfile final : public ObjectWithTimestamp {
 public:
     // Assign the content if the timestamp differs, don't assign an ObjectID.
-    void assign(const LayerHeightProfile &rhs) { if (! this->timestamp_matches(rhs)) { this->m_data = rhs.m_data; this->copy_timestamp(rhs); } }
-    void assign(LayerHeightProfile &&rhs) { if (! this->timestamp_matches(rhs)) { this->m_data = std::move(rhs.m_data); this->copy_timestamp(rhs); } }
+    void assign(const LayerHeightProfile &rhs) { if (! this->timestamp_matches(rhs)) { m_data = rhs.m_data; this->copy_timestamp(rhs); } }
+    void assign(LayerHeightProfile &&rhs) { if (! this->timestamp_matches(rhs)) { m_data = std::move(rhs.m_data); this->copy_timestamp(rhs); } }
 
     std::vector<coordf_t> get() const throw() { return m_data; }
     bool                  empty() const throw() { return m_data.empty(); }
@@ -214,6 +214,16 @@ private:
 
     // to access set_new_unique_id() when copy / pasting an object
     friend class ModelObject;
+};
+
+// Declared outside of ModelVolume, so it could be forward declared.
+enum class ModelVolumeType : int {
+    INVALID = -1,
+    MODEL_PART = 0,
+    NEGATIVE_VOLUME,
+    PARAMETER_MODIFIER,
+    SUPPORT_BLOCKER,
+    SUPPORT_ENFORCER,
 };
 
 // A printable object, possibly having multiple print volumes (each with its own set of parameters and materials),
@@ -262,11 +272,12 @@ public:
     const Model*            get_model() const { return m_model; }
 
     ModelVolume*            add_volume(const TriangleMesh &mesh);
-    ModelVolume*            add_volume(TriangleMesh &&mesh);
-    ModelVolume*            add_volume(const ModelVolume &volume);
+    ModelVolume*            add_volume(TriangleMesh &&mesh, ModelVolumeType type = ModelVolumeType::MODEL_PART);
+    ModelVolume*            add_volume(const ModelVolume &volume, ModelVolumeType type = ModelVolumeType::INVALID);
     ModelVolume*            add_volume(const ModelVolume &volume, TriangleMesh &&mesh);
     void                    delete_volume(size_t idx);
     void                    clear_volumes();
+    void                    sort_volumes(bool full_sort);
     bool                    is_multiparts() const { return volumes.size() > 1; }
 
     ModelInstance*          add_instance();
@@ -289,8 +300,6 @@ public:
     TriangleMesh raw_mesh() const;
     // The same as above, but producing a lightweight indexed_triangle_set.
     indexed_triangle_set raw_indexed_triangle_set() const;
-    // Non-transformed (non-rotated, non-scaled, non-translated) sum of all object volumes.
-    TriangleMesh full_raw_mesh() const;
     // A transformed snug bounding box around the non-modifier object volumes, without the translation applied.
     // This bounding box is only used for the actual slicing.
     const BoundingBoxf3& raw_bounding_box() const;
@@ -308,7 +317,11 @@ public:
 
     void center_around_origin(bool include_modifiers = true);
 
+#if ENABLE_ALLOW_NEGATIVE_Z
+    void ensure_on_bed(bool allow_negative_z = false);
+#else
     void ensure_on_bed();
+#endif // ENABLE_ALLOW_NEGATIVE_Z
     void translate_instances(const Vec3d& vector);
     void translate_instance(size_t instance_idx, const Vec3d& vector);
     void translate(const Vec3d &vector) { this->translate(vector(0), vector(1), vector(2)); }
@@ -480,15 +493,6 @@ private:
 	}
 };
 
-// Declared outside of ModelVolume, so it could be forward declared.
-enum class ModelVolumeType : int {
-    INVALID = -1,
-    MODEL_PART = 0,
-    PARAMETER_MODIFIER,
-    SUPPORT_ENFORCER,
-    SUPPORT_BLOCKER,
-};
-
 enum class EnforcerBlockerType : int8_t {
     // Maximum is 3. The value is serialized in TriangleSelector into 2 bits!
     NONE      = 0,
@@ -506,8 +510,8 @@ enum class ConversionType : int {
 class FacetsAnnotation final : public ObjectWithTimestamp {
 public:
     // Assign the content if the timestamp differs, don't assign an ObjectID.
-    void assign(const FacetsAnnotation& rhs) { if (! this->timestamp_matches(rhs)) { this->m_data = rhs.m_data; this->copy_timestamp(rhs); } }
-    void assign(FacetsAnnotation&& rhs) { if (! this->timestamp_matches(rhs)) { this->m_data = std::move(rhs.m_data); this->copy_timestamp(rhs); } }
+    void assign(const FacetsAnnotation& rhs) { if (! this->timestamp_matches(rhs)) { m_data = rhs.m_data; this->copy_timestamp(rhs); } }
+    void assign(FacetsAnnotation&& rhs) { if (! this->timestamp_matches(rhs)) { m_data = std::move(rhs.m_data); this->copy_timestamp(rhs); } }
     const std::map<int, std::vector<bool>>& get_data() const throw() { return m_data; }
     bool set(const TriangleSelector& selector);
     indexed_triangle_set get_facets(const ModelVolume& mv, EnforcerBlockerType type) const;
@@ -588,11 +592,15 @@ public:
     // List of seam enforcers/blockers.
     FacetsAnnotation    seam_facets;
 
+    // List of mesh facets painted for MMU segmentation.
+    FacetsAnnotation    mmu_segmentation_facets;
+
     // A parent object owning this modifier volume.
     ModelObject*        get_object() const { return this->object; }
     ModelVolumeType     type() const { return m_type; }
     void                set_type(const ModelVolumeType t) { m_type = t; }
 	bool                is_model_part()         const { return m_type == ModelVolumeType::MODEL_PART; }
+    bool                is_negative_volume()    const { return m_type == ModelVolumeType::NEGATIVE_VOLUME; }
 	bool                is_modifier()           const { return m_type == ModelVolumeType::PARAMETER_MODIFIER; }
 	bool                is_support_enforcer()   const { return m_type == ModelVolumeType::SUPPORT_ENFORCER; }
 	bool                is_support_blocker()    const { return m_type == ModelVolumeType::SUPPORT_BLOCKER; }
@@ -675,6 +683,7 @@ public:
         this->config.set_new_unique_id();
         this->supported_facets.set_new_unique_id();
         this->seam_facets.set_new_unique_id();
+        this->mmu_segmentation_facets.set_new_unique_id();
     }
 
 protected:
@@ -682,6 +691,7 @@ protected:
     friend class SLAPrint;
     friend class Model;
 	friend class ModelObject;
+    friend void model_volume_list_update_supports(ModelObject& model_object_dst, const ModelObject& model_object_new);
 
 	// Copies IDs of both the ModelVolume and its config.
 	explicit ModelVolume(const ModelVolume &rhs) = default;
@@ -708,27 +718,31 @@ private:
     //      1   ->   is splittable
     mutable int               		m_is_splittable{ -1 };
 
-	ModelVolume(ModelObject *object, const TriangleMesh &mesh) : m_mesh(new TriangleMesh(mesh)), m_type(ModelVolumeType::MODEL_PART), object(object)
+	ModelVolume(ModelObject *object, const TriangleMesh &mesh, ModelVolumeType type = ModelVolumeType::MODEL_PART) : m_mesh(new TriangleMesh(mesh)), m_type(type), object(object)
     {
 		assert(this->id().valid()); 
         assert(this->config.id().valid()); 
         assert(this->supported_facets.id().valid()); 
-        assert(this->seam_facets.id().valid()); 
+        assert(this->seam_facets.id().valid());
+        assert(this->mmu_segmentation_facets.id().valid());
         assert(this->id() != this->config.id());
         assert(this->id() != this->supported_facets.id());
         assert(this->id() != this->seam_facets.id());
+        assert(this->id() != this->mmu_segmentation_facets.id());
         if (mesh.stl.stats.number_of_facets > 1)
             calculate_convex_hull();
     }
-    ModelVolume(ModelObject *object, TriangleMesh &&mesh, TriangleMesh &&convex_hull) :
-		m_mesh(new TriangleMesh(std::move(mesh))), m_convex_hull(new TriangleMesh(std::move(convex_hull))), m_type(ModelVolumeType::MODEL_PART), object(object) {
+    ModelVolume(ModelObject *object, TriangleMesh &&mesh, TriangleMesh &&convex_hull, ModelVolumeType type = ModelVolumeType::MODEL_PART) :
+		m_mesh(new TriangleMesh(std::move(mesh))), m_convex_hull(new TriangleMesh(std::move(convex_hull))), m_type(type), object(object) {
 		assert(this->id().valid()); 
-        assert(this->config.id().valid()); 
-        assert(this->supported_facets.id().valid()); 
-        assert(this->seam_facets.id().valid()); 
+        assert(this->config.id().valid());
+        assert(this->supported_facets.id().valid());
+        assert(this->seam_facets.id().valid());
+        assert(this->mmu_segmentation_facets.id().valid());
         assert(this->id() != this->config.id());
         assert(this->id() != this->supported_facets.id());
         assert(this->id() != this->seam_facets.id());
+        assert(this->id() != this->mmu_segmentation_facets.id());
 	}
 
     // Copying an existing volume, therefore this volume will get a copy of the ID assigned.
@@ -736,19 +750,22 @@ private:
         ObjectBase(other),
         name(other.name), source(other.source), m_mesh(other.m_mesh), m_convex_hull(other.m_convex_hull),
         config(other.config), m_type(other.m_type), object(object), m_transformation(other.m_transformation),
-        supported_facets(other.supported_facets), seam_facets(other.seam_facets)
+        supported_facets(other.supported_facets), seam_facets(other.seam_facets), mmu_segmentation_facets(other.mmu_segmentation_facets)
     {
 		assert(this->id().valid()); 
         assert(this->config.id().valid()); 
         assert(this->supported_facets.id().valid());
         assert(this->seam_facets.id().valid());
+        assert(this->mmu_segmentation_facets.id().valid());
         assert(this->id() != this->config.id());
         assert(this->id() != this->supported_facets.id());
         assert(this->id() != this->seam_facets.id());
+        assert(this->id() != this->mmu_segmentation_facets.id());
 		assert(this->id() == other.id());
         assert(this->config.id() == other.config.id());
         assert(this->supported_facets.id() == other.supported_facets.id());
         assert(this->seam_facets.id() == other.seam_facets.id());
+        assert(this->mmu_segmentation_facets.id() == other.mmu_segmentation_facets.id());
         this->set_material_id(other.material_id());
     }
     // Providing a new mesh, therefore this volume will get a new unique ID assigned.
@@ -759,9 +776,11 @@ private:
         assert(this->config.id().valid()); 
         assert(this->supported_facets.id().valid());
         assert(this->seam_facets.id().valid());
+        assert(this->mmu_segmentation_facets.id().valid());
         assert(this->id() != this->config.id());
         assert(this->id() != this->supported_facets.id());
         assert(this->id() != this->seam_facets.id());
+        assert(this->id() != this->mmu_segmentation_facets.id());
 		assert(this->id() != other.id());
         assert(this->config.id() == other.config.id());
         this->set_material_id(other.material_id());
@@ -772,9 +791,11 @@ private:
         assert(this->config.id() != other.config.id()); 
         assert(this->supported_facets.id() != other.supported_facets.id());
         assert(this->seam_facets.id() != other.seam_facets.id());
+        assert(this->mmu_segmentation_facets.id() != other.mmu_segmentation_facets.id());
         assert(this->id() != this->config.id());
         assert(this->supported_facets.empty());
         assert(this->seam_facets.empty());
+        assert(this->mmu_segmentation_facets.empty());
     }
 
     ModelVolume& operator=(ModelVolume &rhs) = delete;
@@ -782,17 +803,19 @@ private:
 	friend class cereal::access;
 	friend class UndoRedo::StackImpl;
 	// Used for deserialization, therefore no IDs are allocated.
-	ModelVolume() : ObjectBase(-1), config(-1), supported_facets(-1), seam_facets(-1), object(nullptr) {
+	ModelVolume() : ObjectBase(-1), config(-1), supported_facets(-1), seam_facets(-1), mmu_segmentation_facets(-1), object(nullptr) {
 		assert(this->id().invalid());
         assert(this->config.id().invalid());
         assert(this->supported_facets.id().invalid());
         assert(this->seam_facets.id().invalid());
+        assert(this->mmu_segmentation_facets.id().invalid());
 	}
 	template<class Archive> void load(Archive &ar) {
 		bool has_convex_hull;
         ar(name, source, m_mesh, m_type, m_material_id, m_transformation, m_is_splittable, has_convex_hull);
         cereal::load_by_value(ar, supported_facets);
         cereal::load_by_value(ar, seam_facets);
+        cereal::load_by_value(ar, mmu_segmentation_facets);
         cereal::load_by_value(ar, config);
 		assert(m_mesh);
 		if (has_convex_hull) {
@@ -808,12 +831,23 @@ private:
         ar(name, source, m_mesh, m_type, m_material_id, m_transformation, m_is_splittable, has_convex_hull);
         cereal::save_by_value(ar, supported_facets);
         cereal::save_by_value(ar, seam_facets);
+        cereal::save_by_value(ar, mmu_segmentation_facets);
         cereal::save_by_value(ar, config);
 		if (has_convex_hull)
 			cereal::save_optional(ar, m_convex_hull);
 	}
 };
 
+inline void model_volumes_sort_by_id(ModelVolumePtrs &model_volumes)
+{
+    std::sort(model_volumes.begin(), model_volumes.end(), [](const ModelVolume *l, const ModelVolume *r) { return l->id() < r->id(); });
+}
+
+inline const ModelVolume* model_volume_find_by_id(const ModelVolumePtrs &model_volumes, const ObjectID id)
+{
+    auto it = lower_bound_by_predicate(model_volumes.begin(), model_volumes.end(), [id](const ModelVolume *mv) { return mv->id() < id; });
+    return it != model_volumes.end() && (*it)->id() == id ? *it : nullptr;
+}
 
 enum ModelInstanceEPrintVolumeState : unsigned char
 {
@@ -1060,29 +1094,34 @@ private:
 
 // Test whether the two models contain the same number of ModelObjects with the same set of IDs
 // ordered in the same order. In that case it is not necessary to kill the background processing.
-extern bool model_object_list_equal(const Model &model_old, const Model &model_new);
+bool model_object_list_equal(const Model &model_old, const Model &model_new);
 
 // Test whether the new model is just an extension of the old model (new objects were added
 // to the end of the original list. In that case it is not necessary to kill the background processing.
-extern bool model_object_list_extended(const Model &model_old, const Model &model_new);
+bool model_object_list_extended(const Model &model_old, const Model &model_new);
 
 // Test whether the new ModelObject contains a different set of volumes (or sorted in a different order)
 // than the old ModelObject.
-extern bool model_volume_list_changed(const ModelObject &model_object_old, const ModelObject &model_object_new, const ModelVolumeType type);
+bool model_volume_list_changed(const ModelObject &model_object_old, const ModelObject &model_object_new, const ModelVolumeType type);
+bool model_volume_list_changed(const ModelObject &model_object_old, const ModelObject &model_object_new, const std::initializer_list<ModelVolumeType> &types);
 
 // Test whether the now ModelObject has newer custom supports data than the old one.
 // The function assumes that volumes list is synchronized.
-extern bool model_custom_supports_data_changed(const ModelObject& mo, const ModelObject& mo_new);
+bool model_custom_supports_data_changed(const ModelObject& mo, const ModelObject& mo_new);
 
 // Test whether the now ModelObject has newer custom seam data than the old one.
 // The function assumes that volumes list is synchronized.
-extern bool model_custom_seam_data_changed(const ModelObject& mo, const ModelObject& mo_new);
+bool model_custom_seam_data_changed(const ModelObject& mo, const ModelObject& mo_new);
+
+// Test whether the now ModelObject has newer MMU segmentation data than the old one.
+// The function assumes that volumes list is synchronized.
+extern bool model_mmu_segmentation_data_changed(const ModelObject& mo, const ModelObject& mo_new);
 
 // If the model has multi-part objects, then it is currently not supported by the SLA mode.
 // Either the model cannot be loaded, or a SLA printer has to be activated.
-extern bool model_has_multi_part_objects(const Model &model);
+bool model_has_multi_part_objects(const Model &model);
 // If the model has advanced features, then it cannot be processed in simple mode.
-extern bool model_has_advanced_features(const Model &model);
+bool model_has_advanced_features(const Model &model);
 
 #ifndef NDEBUG
 // Verify whether the IDs of Model / ModelObject / ModelVolume / ModelInstance / ModelMaterial are valid and unique.

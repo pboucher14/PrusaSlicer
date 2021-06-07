@@ -2,11 +2,14 @@
 
 #include "libslic3r/Tesselate.hpp"
 #include "libslic3r/TriangleMesh.hpp"
+#include "libslic3r/TriangleMeshSlicer.hpp"
 #include "libslic3r/ClipperUtils.hpp"
 
 #include "slic3r/GUI/Camera.hpp"
 
 #include <GL/glew.h>
+
+#include <igl/unproject.h>
 
 
 namespace Slic3r {
@@ -28,7 +31,6 @@ void MeshClipper::set_mesh(const TriangleMesh& mesh)
         m_mesh = &mesh;
         m_triangles_valid = false;
         m_triangles2d.resize(0);
-        m_tms.reset(nullptr);
     }
 }
 
@@ -67,11 +69,6 @@ void MeshClipper::render_cut()
 
 void MeshClipper::recalculate_triangles()
 {
-    if (! m_tms) {
-        m_tms.reset(new TriangleMeshSlicer);
-        m_tms->init(m_mesh, [](){});
-    }
-
     const Transform3f& instance_matrix_no_translation_no_scaling = m_trafo.get_matrix(true,false,true).cast<float>();
     const Vec3f& scaling = m_trafo.get_scaling_factor().cast<float>();
     // Calculate clipping plane normal in mesh coordinates.
@@ -81,18 +78,18 @@ void MeshClipper::recalculate_triangles()
     float height_mesh = m_plane.distance(m_trafo.get_offset()) * (up_noscale.norm()/up.norm());
 
     // Now do the cutting
-    std::vector<ExPolygons> list_of_expolys;
-    m_tms->set_up_direction(up.cast<float>());
-    m_tms->slice(std::vector<float>{height_mesh}, SlicingMode::Regular, 0.f, &list_of_expolys, [](){});
+    MeshSlicingParamsEx slicing_params;
+    slicing_params.trafo.rotate(Eigen::Quaternion<double, Eigen::DontAlign>::FromTwoVectors(up, Vec3d::UnitZ()));
+
+    assert(m_mesh->has_shared_vertices());
+    std::vector<ExPolygons> list_of_expolys = slice_mesh_ex(m_mesh->its, std::vector<float>{height_mesh}, slicing_params);
 
     if (m_negative_mesh && !m_negative_mesh->empty()) {
-        TriangleMeshSlicer negative_tms{m_negative_mesh};
-        negative_tms.set_up_direction(up.cast<float>());
-
-        std::vector<ExPolygons> neg_polys;
-        negative_tms.slice(std::vector<float>{height_mesh}, SlicingMode::Regular, 0.f, &neg_polys, [](){});
+        assert(m_negative_mesh->has_shared_vertices());
+        std::vector<ExPolygons> neg_polys = slice_mesh_ex(m_negative_mesh->its, std::vector<float>{height_mesh}, slicing_params);
         list_of_expolys.front() = diff_ex(list_of_expolys.front(), neg_polys.front());
     }
+   
     m_triangles2d = triangulate_expolygons_2f(list_of_expolys[0], m_trafo.get_matrix().matrix().determinant() < 0.);
 
     // Rotate the cut into world coords:
@@ -127,14 +124,16 @@ Vec3f MeshRaycaster::get_triangle_normal(size_t facet_idx) const
 void MeshRaycaster::line_from_mouse_pos(const Vec2d& mouse_pos, const Transform3d& trafo, const Camera& camera,
                                         Vec3d& point, Vec3d& direction) const
 {
-    const std::array<int, 4>& viewport = camera.get_viewport();
-    const Transform3d& model_mat = camera.get_view_matrix();
-    const Transform3d& proj_mat = camera.get_projection_matrix();
+    Matrix4d modelview = camera.get_view_matrix().matrix();
+    Matrix4d projection= camera.get_projection_matrix().matrix();
+    Vec4i viewport(camera.get_viewport().data());
 
     Vec3d pt1;
     Vec3d pt2;
-    ::gluUnProject(mouse_pos(0), viewport[3] - mouse_pos(1), 0., model_mat.data(), proj_mat.data(), viewport.data(), &pt1(0), &pt1(1), &pt1(2));
-    ::gluUnProject(mouse_pos(0), viewport[3] - mouse_pos(1), 1., model_mat.data(), proj_mat.data(), viewport.data(), &pt2(0), &pt2(1), &pt2(2));
+    igl::unproject(Vec3d(mouse_pos(0), viewport[3] - mouse_pos(1), 0.),
+                   modelview, projection, viewport, pt1);
+    igl::unproject(Vec3d(mouse_pos(0), viewport[3] - mouse_pos(1), 1.),
+                   modelview, projection, viewport, pt2);
 
     Transform3d inv = trafo.inverse();
     pt1 = inv * pt1;

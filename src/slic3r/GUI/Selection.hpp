@@ -5,11 +5,6 @@
 #include "libslic3r/Geometry.hpp"
 #include "GLModel.hpp"
 
-#if ENABLE_RENDER_SELECTION_CENTER
-class GLUquadric;
-typedef class GLUquadric GLUquadricObj;
-#endif // ENABLE_RENDER_SELECTION_CENTER
-
 namespace Slic3r {
 
 class Shader;
@@ -129,7 +124,7 @@ private:
         TransformCache m_instance;
 
     public:
-        VolumeCache() {}
+        VolumeCache() = default;
         VolumeCache(const Geometry::Transformation& volume_transform, const Geometry::Transformation& instance_transform);
 
         const Vec3d& get_volume_position() const { return m_volume.position; }
@@ -216,7 +211,7 @@ private:
     bool m_scaled_instance_bounding_box_dirty;
 
 #if ENABLE_RENDER_SELECTION_CENTER
-    GLUquadricObj* m_quadric;
+    GLModel m_vbo_sphere;
 #endif // ENABLE_RENDER_SELECTION_CENTER
 
     GLModel m_arrow;
@@ -226,9 +221,6 @@ private:
 
 public:
     Selection();
-#if ENABLE_RENDER_SELECTION_CENTER
-    ~Selection();
-#endif // ENABLE_RENDER_SELECTION_CENTER
 
     void set_volumes(GLVolumePtrs* volumes);
     bool init();

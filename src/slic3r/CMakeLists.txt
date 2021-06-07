@@ -57,6 +57,8 @@ set(SLIC3R_GUI_SOURCES
     GUI/Gizmos/GLGizmoPainterBase.hpp
     GUI/Gizmos/GLGizmoSeam.cpp
     GUI/Gizmos/GLGizmoSeam.hpp
+    GUI/Gizmos/GLGizmoMmuSegmentation.cpp
+    GUI/Gizmos/GLGizmoMmuSegmentation.hpp
     GUI/GLSelectionRectangle.cpp
     GUI/GLSelectionRectangle.hpp
     GUI/GLModel.hpp
@@ -189,6 +191,10 @@ set(SLIC3R_GUI_SOURCES
     GUI/UnsavedChangesDialog.hpp
     GUI/ExtraRenderers.cpp
     GUI/ExtraRenderers.hpp
+    GUI/ProjectDirtyStateManager.hpp
+    GUI/ProjectDirtyStateManager.cpp
+    GUI/DesktopIntegrationDialog.cpp
+    GUI/DesktopIntegrationDialog.hpp
     Utils/Http.cpp
     Utils/Http.hpp
     Utils/FixModelByWin10.cpp
@@ -236,7 +242,7 @@ add_library(libslic3r_gui STATIC ${SLIC3R_GUI_SOURCES})
 
 encoding_check(libslic3r_gui)
 
-target_link_libraries(libslic3r_gui libslic3r avrdude cereal imgui GLEW::GLEW OpenGL::GL OpenGL::GLU hidapi libcurl ${wxWidgets_LIBRARIES})
+target_link_libraries(libslic3r_gui libslic3r avrdude cereal imgui GLEW::GLEW OpenGL::GL hidapi libcurl ${wxWidgets_LIBRARIES})
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_libraries(libslic3r_gui ${DBUS_LIBRARIES}) 

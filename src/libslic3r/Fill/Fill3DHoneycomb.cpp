@@ -55,8 +55,8 @@ static std::vector<coordf_t> perpendPoints(const coordf_t offset, const size_t b
 static inline void trim(Pointfs &pts, coordf_t minX, coordf_t minY, coordf_t maxX, coordf_t maxY)
 {
     for (Vec2d &pt : pts) {
-        pt(0) = clamp(minX, maxX, pt(0));
-        pt(1) = clamp(minY, maxY, pt(1));
+        pt.x() = std::clamp(pt.x(), minX, maxX);
+        pt.y() = std::clamp(pt.y(), minY, maxY);
     }
 }
 
@@ -162,7 +162,7 @@ void Fill3DHoneycomb::_fill_surface_single(
 		pl.translate(bb.min);
 
     // clip pattern to boundaries, chain the clipped polylines
-    polylines = intersection_pl(polylines, to_polygons(expolygon));
+    polylines = intersection_pl(polylines, expolygon);
 
     // connect lines if needed
     if (params.dont_connect() || polylines.size() <= 1)

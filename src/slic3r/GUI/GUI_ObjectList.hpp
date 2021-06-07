@@ -238,7 +238,7 @@ public:
     bool                is_instance_or_object_selected();
 
     void                load_subobject(ModelVolumeType type);
-    void                load_part(ModelObject* model_object, std::vector<std::pair<wxString, bool>> &volumes_info, ModelVolumeType type);
+    void                load_part(ModelObject* model_object, std::vector<ModelVolume*> &added_volumes, ModelVolumeType type);
 	void                load_generic_subobject(const std::string& type_name, const ModelVolumeType type);
     void                load_shape_object(const std::string &type_name);
     void                load_mesh_object(const TriangleMesh &mesh, const wxString &name, bool center = true);
@@ -291,10 +291,9 @@ public:
     // #ys_FIXME_to_delete
     // Unselect all objects in the list on c++ side
     void unselect_objects();
-    // Select current object in the list on c++ side
-    void select_current_object(int idx);
-    // Select current volume in the list on c++ side
-    void select_current_volume(int idx, int vol_idx);
+    // Select object item in the ObjectList, when some gizmo is activated
+    // "is_msr_gizmo" indicates if Move/Scale/Rotate gizmo was activated
+    void select_object_item(bool is_msr_gizmo);
 
     // Remove objects/sub-object from the list
     void remove();
@@ -372,6 +371,8 @@ public:
     void toggle_printable_state();
 
     void set_extruder_for_selected_items(const int extruder) const ;
+    wxDataViewItemArray reorder_volumes_and_get_selection(int obj_idx, std::function<bool(const ModelVolume*)> add_to_selection = nullptr);
+    void apply_volumes_order();
 
 private:
 #ifdef __WXOSX__
@@ -391,7 +392,6 @@ private:
 	void OnEditingStarted(wxDataViewEvent &event);
 #endif /* __WXMSW__ */
     void OnEditingDone(wxDataViewEvent &event);
-    void extruder_selection();
 };
 
 

@@ -83,8 +83,8 @@ inline bool operator!=(const ExPolygon &lhs, const ExPolygon &rhs) { return lhs.
 inline size_t number_polygons(const ExPolygons &expolys)
 {
     size_t n_polygons = 0;
-    for (ExPolygons::const_iterator it = expolys.begin(); it != expolys.end(); ++ it)
-        n_polygons += it->holes.size() + 1;
+    for (const ExPolygon &ex : expolys)
+        n_polygons += ex.holes.size() + 1;
     return n_polygons;
 }
 
@@ -360,15 +360,11 @@ extern std::vector<BoundingBox> get_extents_vector(const ExPolygons &polygons);
 extern bool        remove_sticks(ExPolygon &poly);
 extern void 	   keep_largest_contour_only(ExPolygons &polygons);
 
-inline double area(const ExPolygon &poly) { return poly.area(); }
+inline double      area(const ExPolygon &poly) { return poly.area(); }
+inline double      area(const ExPolygons &polys) { double s = 0.; for (auto &p : polys) s += p.area(); return s; }
 
-inline double area(const ExPolygons &polys)
-{
-    double s = 0.;
-    for (auto &p : polys) s += p.area();
-
-    return s;
-}
+// Removes all expolygons smaller than min_area and also removes all holes smaller than min_area
+extern bool        remove_small_and_small_holes(ExPolygons &expolygons, double min_area);
 
 } // namespace Slic3r
 

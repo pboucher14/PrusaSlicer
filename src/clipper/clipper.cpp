@@ -105,6 +105,15 @@ struct OutRec {
 
 //------------------------------------------------------------------------------
 
+inline IntPoint IntPoint2d(cInt x, cInt y)
+{
+  return IntPoint(x, y
+#ifdef CLIPPERLIB_USE_XYZ
+    , 0
+#endif // CLIPPERLIB_USE_XYZ
+    );
+}
+
 inline cInt Round(double val)
 {
   return static_cast<cInt>((val < 0) ? (val - 0.5) : (val + 0.5));
@@ -759,48 +768,6 @@ bool ClipperBase::AddPath(const Path &pg, PolyType PolyTyp, bool Closed)
   return result;
 }
 
-bool ClipperBase::AddPaths(const Paths &ppg, PolyType PolyTyp, bool Closed)
-{
-  CLIPPERLIB_PROFILE_FUNC();
-  std::vector<int> num_edges(ppg.size(), 0);
-  int num_edges_total = 0;
-  for (size_t i = 0; i < ppg.size(); ++ i) {
-    const Path &pg = ppg[i];
-    // Remove duplicate end point from a closed input path.
-    // Remove duplicate points from the end of the input path.
-    int highI = (int)pg.size() -1;
-    if (Closed) 
-      while (highI > 0 && (pg[highI] == pg[0])) 
-        --highI;
-    while (highI > 0 && (pg[highI] == pg[highI -1])) 
-      --highI;
-    if ((Closed && highI < 2) || (!Closed && highI < 1))
-      highI = -1;
-    num_edges[i] = highI + 1;
-    num_edges_total += highI + 1;
-  }
-  if (num_edges_total == 0)
-    return false;
-
-  // Allocate a new edge array.
-  std::vector<TEdge> edges(num_edges_total);
-  // Fill in the edge array.
-  bool result = false;
-  TEdge *p_edge = edges.data();
-  for (Paths::size_type i = 0; i < ppg.size(); ++i)
-    if (num_edges[i]) {
-      bool res = AddPathInternal(ppg[i], num_edges[i] - 1, PolyTyp, Closed, p_edge);
-      if (res) {
-        p_edge += num_edges[i];
-        result = true;
-      }
-    }
-  if (result)
-    // At least some edges were generated. Remember the edge array.
-    m_edges.emplace_back(std::move(edges));
-  return result;
-}
-
 bool ClipperBase::AddPathInternal(const Path &pg, int highI, PolyType PolyTyp, bool Closed, TEdge* edges)
 {
   CLIPPERLIB_PROFILE_FUNC();
@@ -1103,7 +1070,7 @@ bool Clipper::Execute(ClipType clipType, Paths &solution,
   CLIPPERLIB_PROFILE_FUNC();
   if (m_HasOpenPaths)
     throw clipperException("Error: PolyTree struct is needed for open path clipping.");
-  solution.resize(0);
+  solution.clear();
   m_SubjFillType = subjFillType;
   m_ClipFillType = clipFillType;
   m_ClipType = clipType;
@@ -2285,7 +2252,7 @@ void Clipper::ProcessHorizontal(TEdge *horzEdge)
                 while (maxIt != m_Maxima.end() && *maxIt < e->Curr.x()) 
                 {
                   if (horzEdge->OutIdx >= 0 && !IsOpen)
-                    AddOutPt(horzEdge, IntPoint(*maxIt, horzEdge->Bot.y()));
+                    AddOutPt(horzEdge, IntPoint2d(*maxIt, horzEdge->Bot.y()));
                   ++maxIt;
                 }
             }
@@ -2294,7 +2261,7 @@ void Clipper::ProcessHorizontal(TEdge *horzEdge)
                 while (maxRit != m_Maxima.rend() && *maxRit > e->Curr.x())
                 {
                   if (horzEdge->OutIdx >= 0 && !IsOpen)
-                    AddOutPt(horzEdge, IntPoint(*maxRit, horzEdge->Bot.y()));
+                    AddOutPt(horzEdge, IntPoint2d(*maxRit, horzEdge->Bot.y()));
                   ++maxRit;
                 }
             }
@@ -2339,12 +2306,12 @@ void Clipper::ProcessHorizontal(TEdge *horzEdge)
         
 		if(dir == dLeftToRight)
         {
-          IntPoint Pt = IntPoint(e->Curr.x(), horzEdge->Curr.y());
+          IntPoint Pt = IntPoint2d(e->Curr.x(), horzEdge->Curr.y());
           IntersectEdges(horzEdge, e, Pt);
         }
         else
         {
-          IntPoint Pt = IntPoint(e->Curr.x(), horzEdge->Curr.y());
+          IntPoint Pt = IntPoint2d(e->Curr.x(), horzEdge->Curr.y());
           IntersectEdges( e, horzEdge, Pt);
         }
         TEdge* eNext = (dir == dLeftToRight) ? e->NextInAEL : e->PrevInAEL;
@@ -3414,22 +3381,15 @@ void ClipperOffset::AddPath(const Path& path, JoinType joinType, EndType endType
   //if this path's lowest pt is lower than all the others then update m_lowest
   if (endType != etClosedPolygon) return;
   if (m_lowest.x() < 0)
-    m_lowest = IntPoint(m_polyNodes.ChildCount() - 1, k);
+    m_lowest = IntPoint2d(m_polyNodes.ChildCount() - 1, k);
   else
   {
     IntPoint ip = m_polyNodes.Childs[(int)m_lowest.x()]->Contour[(int)m_lowest.y()];
     if (newNode->Contour[k].y() > ip.y() ||
       (newNode->Contour[k].y() == ip.y() &&
       newNode->Contour[k].x() < ip.x()))
-      m_lowest = IntPoint(m_polyNodes.ChildCount() - 1, k);
+      m_lowest = IntPoint2d(m_polyNodes.ChildCount() - 1, k);
   }
-}
-//------------------------------------------------------------------------------
-
-void ClipperOffset::AddPaths(const Paths& paths, JoinType joinType, EndType endType)
-{
-  for (const Path &path : paths)
-    AddPath(path, joinType, endType);
 }
 //------------------------------------------------------------------------------
 
@@ -3476,10 +3436,10 @@ void ClipperOffset::Execute(Paths& solution, double delta)
   {
     IntRect r = clpr.GetBounds();
     Path outer(4);
-    outer[0] = IntPoint(r.left - 10, r.bottom + 10);
-    outer[1] = IntPoint(r.right + 10, r.bottom + 10);
-    outer[2] = IntPoint(r.right + 10, r.top - 10);
-    outer[3] = IntPoint(r.left - 10, r.top - 10);
+    outer[0] = IntPoint2d(r.left - 10, r.bottom + 10);
+    outer[1] = IntPoint2d(r.right + 10, r.bottom + 10);
+    outer[2] = IntPoint2d(r.right + 10, r.top - 10);
+    outer[3] = IntPoint2d(r.left - 10, r.top - 10);
 
     clpr.AddPath(outer, ptSubject, true);
     clpr.ReverseSolution(true);
@@ -3506,10 +3466,10 @@ void ClipperOffset::Execute(PolyTree& solution, double delta)
   {
     IntRect r = clpr.GetBounds();
     Path outer(4);
-    outer[0] = IntPoint(r.left - 10, r.bottom + 10);
-    outer[1] = IntPoint(r.right + 10, r.bottom + 10);
-    outer[2] = IntPoint(r.right + 10, r.top - 10);
-    outer[3] = IntPoint(r.left - 10, r.top - 10);
+    outer[0] = IntPoint2d(r.left - 10, r.bottom + 10);
+    outer[1] = IntPoint2d(r.right + 10, r.bottom + 10);
+    outer[2] = IntPoint2d(r.right + 10, r.top - 10);
+    outer[3] = IntPoint2d(r.left - 10, r.top - 10);
 
     clpr.AddPath(outer, ptSubject, true);
     clpr.ReverseSolution(true);
@@ -3585,7 +3545,7 @@ void ClipperOffset::DoOffset(double delta)
         double X = 1.0, Y = 0.0;
         for (cInt j = 1; j <= steps; j++)
         {
-          m_destPoly.push_back(IntPoint(
+          m_destPoly.push_back(IntPoint2d(
             Round(m_srcPoly[0].x() + X * delta),
             Round(m_srcPoly[0].y() + Y * delta)));
           double X2 = X;
@@ -3598,7 +3558,7 @@ void ClipperOffset::DoOffset(double delta)
         double X = -1.0, Y = -1.0;
         for (int j = 0; j < 4; ++j)
         {
-          m_destPoly.push_back(IntPoint(
+          m_destPoly.push_back(IntPoint2d(
             Round(m_srcPoly[0].x() + X * delta),
             Round(m_srcPoly[0].y() + Y * delta)));
           if (X < 0) X = 1;
@@ -3653,9 +3613,9 @@ void ClipperOffset::DoOffset(double delta)
       if (node.m_endtype == etOpenButt)
       {
         int j = len - 1;
-        pt1 = IntPoint(Round(m_srcPoly[j].x() + m_normals[j].x() * delta), Round(m_srcPoly[j].y() + m_normals[j].y() * delta));
+        pt1 = IntPoint2d(Round(m_srcPoly[j].x() + m_normals[j].x() * delta), Round(m_srcPoly[j].y() + m_normals[j].y() * delta));
         m_destPoly.push_back(pt1);
-        pt1 = IntPoint(Round(m_srcPoly[j].x() - m_normals[j].x() * delta), Round(m_srcPoly[j].y() - m_normals[j].y() * delta));
+        pt1 = IntPoint2d(Round(m_srcPoly[j].x() - m_normals[j].x() * delta), Round(m_srcPoly[j].y() - m_normals[j].y() * delta));
         m_destPoly.push_back(pt1);
       }
       else
@@ -3680,9 +3640,9 @@ void ClipperOffset::DoOffset(double delta)
 
       if (node.m_endtype == etOpenButt)
       {
-        pt1 = IntPoint(Round(m_srcPoly[0].x() - m_normals[0].x() * delta), Round(m_srcPoly[0].y() - m_normals[0].y() * delta));
+        pt1 = IntPoint2d(Round(m_srcPoly[0].x() - m_normals[0].x() * delta), Round(m_srcPoly[0].y() - m_normals[0].y() * delta));
         m_destPoly.push_back(pt1);
-        pt1 = IntPoint(Round(m_srcPoly[0].x() + m_normals[0].x() * delta), Round(m_srcPoly[0].y() + m_normals[0].y() * delta));
+        pt1 = IntPoint2d(Round(m_srcPoly[0].x() + m_normals[0].x() * delta), Round(m_srcPoly[0].y() + m_normals[0].y() * delta));
         m_destPoly.push_back(pt1);
       }
       else
@@ -3710,7 +3670,7 @@ void ClipperOffset::OffsetPoint(int j, int& k, JoinType jointype)
     double cosA = (m_normals[k].x() * m_normals[j].x() + m_normals[j].y() * m_normals[k].y() ); 
     if (cosA > 0) // angle => 0 degrees
     {
-      m_destPoly.push_back(IntPoint(Round(m_srcPoly[j].x() + m_normals[k].x() * m_delta),
+      m_destPoly.push_back(IntPoint2d(Round(m_srcPoly[j].x() + m_normals[k].x() * m_delta),
         Round(m_srcPoly[j].y() + m_normals[k].y() * m_delta)));
       return; 
     }
@@ -3721,10 +3681,10 @@ void ClipperOffset::OffsetPoint(int j, int& k, JoinType jointype)
 
   if (m_sinA * m_delta < 0)
   {
-    m_destPoly.push_back(IntPoint(Round(m_srcPoly[j].x() + m_normals[k].x() * m_delta),
+    m_destPoly.push_back(IntPoint2d(Round(m_srcPoly[j].x() + m_normals[k].x() * m_delta),
       Round(m_srcPoly[j].y() + m_normals[k].y() * m_delta)));
     m_destPoly.push_back(m_srcPoly[j]);
-    m_destPoly.push_back(IntPoint(Round(m_srcPoly[j].x() + m_normals[j].x() * m_delta),
+    m_destPoly.push_back(IntPoint2d(Round(m_srcPoly[j].x() + m_normals[j].x() * m_delta),
       Round(m_srcPoly[j].y() + m_normals[j].y() * m_delta)));
   }
   else
@@ -3748,10 +3708,10 @@ void ClipperOffset::DoSquare(int j, int k)
 {
   double dx = std::tan(std::atan2(m_sinA,
       m_normals[k].x() * m_normals[j].x() + m_normals[k].y() * m_normals[j].y()) / 4);
-  m_destPoly.push_back(IntPoint(
+  m_destPoly.push_back(IntPoint2d(
       Round(m_srcPoly[j].x() + m_delta * (m_normals[k].x() - m_normals[k].y() * dx)),
       Round(m_srcPoly[j].y() + m_delta * (m_normals[k].y() + m_normals[k].x() * dx))));
-  m_destPoly.push_back(IntPoint(
+  m_destPoly.push_back(IntPoint2d(
       Round(m_srcPoly[j].x() + m_delta * (m_normals[j].x() + m_normals[j].y() * dx)),
       Round(m_srcPoly[j].y() + m_delta * (m_normals[j].y() - m_normals[j].x() * dx))));
 }
@@ -3760,7 +3720,7 @@ void ClipperOffset::DoSquare(int j, int k)
 void ClipperOffset::DoMiter(int j, int k, double r)
 {
   double q = m_delta / r;
-  m_destPoly.push_back(IntPoint(Round(m_srcPoly[j].x() + (m_normals[k].x() + m_normals[j].x()) * q),
+  m_destPoly.push_back(IntPoint2d(Round(m_srcPoly[j].x() + (m_normals[k].x() + m_normals[j].x()) * q),
       Round(m_srcPoly[j].y() + (m_normals[k].y() + m_normals[j].y()) * q)));
 }
 //------------------------------------------------------------------------------
@@ -3774,14 +3734,14 @@ void ClipperOffset::DoRound(int j, int k)
   double X = m_normals[k].x(), Y = m_normals[k].y(), X2;
   for (int i = 0; i < steps; ++i)
   {
-    m_destPoly.push_back(IntPoint(
+    m_destPoly.push_back(IntPoint2d(
         Round(m_srcPoly[j].x() + X * m_delta),
         Round(m_srcPoly[j].y() + Y * m_delta)));
     X2 = X;
     X = X * m_cos - m_sin * Y;
     Y = X2 * m_sin + Y * m_cos;
   }
-  m_destPoly.push_back(IntPoint(
+  m_destPoly.push_back(IntPoint2d(
   Round(m_srcPoly[j].x() + m_normals[j].x() * m_delta),
   Round(m_srcPoly[j].y() + m_normals[j].y() * m_delta)));
 }
@@ -3875,28 +3835,16 @@ void ReversePaths(Paths& p)
 }
 //------------------------------------------------------------------------------
 
-void SimplifyPolygon(const Path &in_poly, Paths &out_polys, PolyFillType fillType)
+Paths SimplifyPolygon(const Path &in_poly, PolyFillType fillType)
 {
   Clipper c;
   c.StrictlySimple(true);
   c.AddPath(in_poly, ptSubject, true);
-  c.Execute(ctUnion, out_polys, fillType, fillType);
+  Paths out; 
+  c.Execute(ctUnion, out, fillType, fillType);
+  return out;
 }
-//------------------------------------------------------------------------------
 
-void SimplifyPolygons(const Paths &in_polys, Paths &out_polys, PolyFillType fillType)
-{
-  Clipper c;
-  c.StrictlySimple(true);
-  c.AddPaths(in_polys, ptSubject, true);
-  c.Execute(ctUnion, out_polys, fillType, fillType);
-}
-//------------------------------------------------------------------------------
-
-void SimplifyPolygons(Paths &polys, PolyFillType fillType)
-{
-  SimplifyPolygons(polys, polys, fillType);
-}
 //------------------------------------------------------------------------------
 
 inline double DistanceSqrd(const IntPoint& pt1, const IntPoint& pt2)
@@ -4062,7 +4010,7 @@ void Minkowski(const Path& poly, const Path& path,
       Path p;
       p.reserve(polyCnt);
       for (size_t j = 0; j < poly.size(); ++j)
-        p.push_back(IntPoint(path[i].x() + poly[j].x(), path[i].y() + poly[j].y()));
+        p.push_back(IntPoint2d(path[i].x() + poly[j].x(), path[i].y() + poly[j].y()));
       pp.push_back(p);
     }
   else
@@ -4071,7 +4019,7 @@ void Minkowski(const Path& poly, const Path& path,
       Path p;
       p.reserve(polyCnt);
       for (size_t j = 0; j < poly.size(); ++j)
-        p.push_back(IntPoint(path[i].x() - poly[j].x(), path[i].y() - poly[j].y()));
+        p.push_back(IntPoint2d(path[i].x() - poly[j].x(), path[i].y() - poly[j].y()));
       pp.push_back(p);
     }
 
@@ -4106,7 +4054,7 @@ void TranslatePath(const Path& input, Path& output, const IntPoint& delta)
   //precondition: input != output
   output.resize(input.size());
   for (size_t i = 0; i < input.size(); ++i)
-    output[i] = IntPoint(input[i].x() + delta.x(), input[i].y() + delta.y());
+    output[i] = IntPoint2d(input[i].x() + delta.x(), input[i].y() + delta.y());
 }
 //------------------------------------------------------------------------------
 

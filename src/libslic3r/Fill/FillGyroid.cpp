@@ -53,7 +53,7 @@ static inline Polyline make_wave(
     polyline.points.reserve(points.size());
     for (auto& point : points) {
         point(1) += offset;
-        point(1) = clamp(0., height, double(point(1)));
+        point(1) = std::clamp(double(point.y()), 0., height);
         if (vertical)
             std::swap(point(0), point(1));
         polyline.points.emplace_back((point * scaleFactor).cast<coord_t>());
@@ -180,7 +180,7 @@ void FillGyroid::_fill_surface_single(
 	for (Polyline &pl : polylines)
 		pl.translate(bb.min);
 
-	polylines = intersection_pl(polylines, to_polygons(expolygon));
+	polylines = intersection_pl(polylines, expolygon);
 
     if (! polylines.empty()) {
 		// Remove very small bits, but be careful to not remove infill lines connecting thin walls!

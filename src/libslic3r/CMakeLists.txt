@@ -126,10 +126,14 @@ add_library(libslic3r STATIC
     Line.hpp
     LibraryCheck.cpp
     LibraryCheck.hpp
+    LocalesUtils.cpp
+    LocalesUtils.hpp
     Model.cpp
     Model.hpp
     ModelArrange.hpp
     ModelArrange.cpp
+    MultiMaterialSegmentation.cpp
+    MultiMaterialSegmentation.hpp
     CustomGCode.cpp
     CustomGCode.hpp
     Arrange.hpp
@@ -163,11 +167,13 @@ add_library(libslic3r STATIC
     AppConfig.hpp
     Print.cpp
     Print.hpp
+    PrintApply.cpp
     PrintBase.cpp
     PrintBase.hpp
     PrintConfig.cpp
     PrintConfig.hpp
     PrintObject.cpp
+    PrintObjectSlice.cpp
     PrintRegion.cpp
     PNGReadWrite.hpp
     PNGReadWrite.cpp
@@ -197,6 +203,8 @@ add_library(libslic3r STATIC
     Tesselate.hpp
     TriangleMesh.cpp
     TriangleMesh.hpp
+    TriangleMeshSlicer.cpp
+    TriangleMeshSlicer.hpp
     TriangulateWall.hpp
     TriangulateWall.cpp
     utils.cpp

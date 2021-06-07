@@ -4,9 +4,12 @@
 #include <iostream>
 #include <vector>
 #include <numeric>
+#include <sstream>
+#include <iomanip>
 
 #include "GCodeProcessor.hpp"
 #include "BoundingBox.hpp"
+#include "LocalesUtils.hpp"
 
 
 namespace Slic3r
@@ -30,29 +33,27 @@ public:
         m_filpar(filament_parameters)
         {
             // adds tag for analyzer:
-            char buf[64];
+            std::ostringstream str;
 #if ENABLE_VALIDATE_CUSTOM_GCODE
-            sprintf(buf, ";%s%f\n", GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Height).c_str(), m_layer_height); // don't rely on GCodeAnalyzer knowing the layer height - it knows nothing at priming
-            m_gcode += buf;
-            sprintf(buf, ";%s%s\n", GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Role).c_str(), ExtrusionEntity::role_to_string(erWipeTower).c_str());
+            str << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Height) << m_layer_height << "\n"; // don't rely on GCodeAnalyzer knowing the layer height - it knows nothing at priming
+            str << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Role) << ExtrusionEntity::role_to_string(erWipeTower) << "\n";
 #else
-            sprintf(buf, ";%s%f\n", GCodeProcessor::Height_Tag.c_str(), m_layer_height); // don't rely on GCodeAnalyzer knowing the layer height - it knows nothing at priming
-            m_gcode += buf;
-            sprintf(buf, ";%s%s\n", GCodeProcessor::Extrusion_Role_Tag.c_str(), ExtrusionEntity::role_to_string(erWipeTower).c_str());
+            str << ";" << GCodeProcessor::Height_Tag << m_layer_height << "\n"; // don't rely on GCodeAnalyzer knowing the layer height - it knows nothing at priming
+            str << ";" << GCodeProcessor::Extrusion_Role_Tag << ExtrusionEntity::role_to_string(erWipeTower) << "\n";
 #endif // ENABLE_VALIDATE_CUSTOM_GCODE
-            m_gcode += buf;
+            m_gcode += str.str();
             change_analyzer_line_width(line_width);
     }
 
     WipeTowerWriter& change_analyzer_line_width(float line_width) {
         // adds tag for analyzer:
-        char buf[64];
+        std::stringstream str;
 #if ENABLE_VALIDATE_CUSTOM_GCODE
-        sprintf(buf, ";%s%f\n", GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Width).c_str(), line_width);
+        str << ";" << GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Width) << line_width << "\n";
 #else
-        sprintf(buf, ";%s%f\n", GCodeProcessor::Width_Tag.c_str(), line_width);
+        str << ";" << GCodeProcessor::Width_Tag << line_width << "\n";
 #endif // ENABLE_VALIDATE_CUSTOM_GCODE
-        m_gcode += buf;
+        m_gcode += str.str();
         return *this;
     }
 
@@ -61,9 +62,9 @@ public:
         static const float area = float(M_PI) * 1.75f * 1.75f / 4.f;
         float mm3_per_mm = (len == 0.f ? 0.f : area * e / len);
         // adds tag for processor:
-        char buf[64];
-        sprintf(buf, ";%s%f\n", GCodeProcessor::Mm3_Per_Mm_Tag.c_str(), mm3_per_mm);
-        m_gcode += buf;
+        std::stringstream str;
+        str << ";" << GCodeProcessor::Mm3_Per_Mm_Tag << mm3_per_mm << "\n";
+        m_gcode += str.str();
         return *this;
     }
 #endif // ENABLE_GCODE_VIEWER_DATA_CHECKING
@@ -325,9 +326,7 @@ public:
 	{
         if (time==0.f)
             return *this;
-		char buf[128];
-		sprintf(buf, "G4 S%.3f\n", time);
-		m_gcode += buf;
+        m_gcode += "G4 S" + Slic3r::float_to_string_decimal_point(time, 3) + "\n";
 		return *this;
     }
 
@@ -443,37 +442,29 @@ private:
     const std::vector<WipeTower::FilamentParameters>& m_filpar;
 
 	std::string   set_format_X(float x)
-	{
-		char buf[64];
-		sprintf(buf, " X%.3f", x);
-		m_current_pos.x() = x;
-		return buf;
+    {
+        m_current_pos.x() = x;
+        return " X" + Slic3r::float_to_string_decimal_point(x, 3);
 	}
 
 	std::string   set_format_Y(float y) {
-		char buf[64];
-		sprintf(buf, " Y%.3f", y);
-		m_current_pos.y() = y;
-		return buf;
+        m_current_pos.y() = y;
+        return " Y" + Slic3r::float_to_string_decimal_point(y, 3);
 	}
 
 	std::string   set_format_Z(float z) {
-		char buf[64];
-		sprintf(buf, " Z%.3f", z);
-		return buf;
+        return " Z" + Slic3r::float_to_string_decimal_point(z, 3);
 	}
 
 	std::string   set_format_E(float e) {
-		char buf[64];
-		sprintf(buf, " E%.4f", e);
-		return buf;
+        return " E" + Slic3r::float_to_string_decimal_point(e, 4);
 	}
 
 	std::string   set_format_F(float f) {
-		char buf[64];
-		sprintf(buf, " F%d", int(floor(f + 0.5f)));
-		m_current_feedrate = f;
-		return buf;
+        char buf[64];
+        sprintf(buf, " F%d", int(floor(f + 0.5f)));
+        m_current_feedrate = f;
+        return buf;
 	}
 
 	WipeTowerWriter& operator=(const WipeTowerWriter &rhs);
@@ -500,9 +491,9 @@ WipeTower::ToolChangeResult WipeTower::construct_tcr(WipeTowerWriter& writer,
     ToolChangeResult result;
     result.priming      = priming;
     result.initial_tool = int(old_tool);
-    result.new_tool     = int(this->m_current_tool);
-    result.print_z      = this->m_z_pos;
-    result.layer_height = this->m_layer_height;
+    result.new_tool     = int(m_current_tool);
+    result.print_z      = m_z_pos;
+    result.layer_height = m_layer_height;
     result.elapsed_time = writer.elapsed_time();
     result.start_pos    = writer.start_pos_rotated();
     result.end_pos      = priming ? writer.pos() : writer.pos_rotated();
@@ -546,10 +537,24 @@ WipeTower::WipeTower(const PrintConfig& config, const std::vector<std::vector<fl
         m_extra_loading_move      = float(config.extra_loading_move);
         m_set_extruder_trimpot    = config.high_current_on_filament_swap;
     }
-    // Calculate where the priming lines should be - very naive test not detecting parallelograms or custom shapes
+    // Calculate where the priming lines should be - very naive test not detecting parallelograms etc.
     const std::vector<Vec2d>& bed_points = config.bed_shape.values;
+    BoundingBoxf bb(bed_points);
+    m_bed_width = float(bb.size().x());
     m_bed_shape = (bed_points.size() == 4 ? RectangularBed : CircularBed);
-    m_bed_width = float(BoundingBoxf(bed_points).size().x());
+
+    if (m_bed_shape == CircularBed) {
+        // this may still be a custom bed, check that the points are roughly on a circle
+        double r2 = std::pow(m_bed_width/2., 2.);
+        double lim2 = std::pow(m_bed_width/10., 2.);
+        Vec2d center = bb.center();
+        for (const Vec2d& pt : bed_points)
+            if (std::abs(std::pow(pt.x()-center.x(), 2.) + std::pow(pt.y()-center.y(), 2.) - r2) > lim2) {
+                m_bed_shape = CustomBed;
+                break;
+            }
+    }
+
     m_bed_bottom_left = m_bed_shape == RectangularBed
                   ? Vec2f(bed_points.front().x(), bed_points.front().y())
                   : Vec2f::Zero();
@@ -616,7 +621,7 @@ std::vector<WipeTower::ToolChangeResult> WipeTower::prime(
     bool 						/*last_wipe_inside_wipe_tower*/)
 {
 	this->set_layer(first_layer_height, first_layer_height, tools.size(), true, false);
-	this->m_current_tool 		= tools.front();
+	m_current_tool 		= tools.front();
     
     // The Prusa i3 MK2 has a working space of [0, -2.2] to [250, 210].
     // Due to the XYZ calibration, this working space may shrink slightly from all directions,
@@ -625,10 +630,12 @@ std::vector<WipeTower::ToolChangeResult> WipeTower::prime(
 
     float prime_section_width = std::min(0.9f * m_bed_width / tools.size(), 60.f);
     box_coordinates cleaning_box(Vec2f(0.02f * m_bed_width, 0.01f + m_perimeter_width/2.f), prime_section_width, 100.f);
-    // In case of a circular bed, place it so it goes across the diameter and hope it will fit
-    if (m_bed_shape == CircularBed)
-        cleaning_box.translate(-m_bed_width/2 + m_bed_width * 0.03f, -m_bed_width * 0.12f);
-    if (m_bed_shape == RectangularBed)
+    if (m_bed_shape == CircularBed) {
+        cleaning_box = box_coordinates(Vec2f(0.f, 0.f), prime_section_width, 100.f);
+        float total_width_half = tools.size() * prime_section_width / 2.f;
+        cleaning_box.translate(-total_width_half, -std::sqrt(std::max(0.f, std::pow(m_bed_width/2, 2.f) - std::pow(1.05f * total_width_half, 2.f))));
+    }
+    else
         cleaning_box.translate(m_bed_bottom_left);
 
     std::vector<ToolChangeResult> results;
@@ -943,8 +950,8 @@ void WipeTower::toolchange_Change(
     // postprocessor that we absolutely want to have this in the gcode, even if it thought it is the same as before.
     Vec2f current_pos = writer.pos_rotated();
     writer.feedrate(m_travel_speed * 60.f) // see https://github.com/prusa3d/PrusaSlicer/issues/5483
-          .append(std::string("G1 X") + std::to_string(current_pos.x())
-                             +  " Y"  + std::to_string(current_pos.y())
+          .append(std::string("G1 X") + Slic3r::float_to_string_decimal_point(current_pos.x())
+                             +  " Y"  + Slic3r::float_to_string_decimal_point(current_pos.y())
                              + never_skip_tag() + "\n");
 
     // The toolchange Tn command will be inserted later, only in case that the user does
@@ -1294,11 +1301,10 @@ static WipeTower::ToolChangeResult merge_tcr(WipeTower::ToolChangeResult& first,
 {
     assert(first.new_tool == second.initial_tool);
     WipeTower::ToolChangeResult out = first;
-    if (first.end_pos != second.start_pos) {
-        char buf[2048];     // Add a travel move from tc1.end_pos to tc2.start_pos.
-        sprintf(buf, "G1 X%.3f Y%.3f F7200\n", second.start_pos.x(), second.start_pos.y());
-        out.gcode += buf;
-    }
+    if (first.end_pos != second.start_pos)
+        out.gcode += "G1 X" + Slic3r::float_to_string_decimal_point(second.start_pos.x(), 3)
+                     + " Y" + Slic3r::float_to_string_decimal_point(second.start_pos.y(), 3)
+                     + " F7200\n";
     out.gcode += second.gcode;
     out.extrusions.insert(out.extrusions.end(), second.extrusions.begin(), second.extrusions.end());
     out.end_pos = second.end_pos;
